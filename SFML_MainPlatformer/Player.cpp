@@ -3,7 +3,7 @@
 
 Player::Player(float startX, float startY) {
     shape.setSize({ 30.f, 40.f });
-    shape.setFillColor(sf::Color::Cyan);
+    shape.setFillColor(sf::Color::Red);
     shape.setPosition({ startX, startY });
 
     velocity = { 0.f, 0.f };
@@ -12,17 +12,15 @@ Player::Player(float startX, float startY) {
     onGround = false;
 }
 
-void Player::update(float dt, char map[][501], int mapWidth, int mapHeight, float tileSize, sf::View& view1, sf::Vector2f& view1POS, sf::RenderWindow& window) {
+void Player::update(float dt, char map[][501], int mapWidth, int mapHeight, float tileSize, sf::View& view1, sf::RenderWindow& window) {
     // ”правл≥нн€
     if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::A) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Left))
     {
         velocity.x = -speed;
-        view1.move({ -speed * dt, 0.f });
     }
     else if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::D) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Right))
     {
         velocity.x = speed;
-		view1.move({ speed * dt, 0.f });
 
     }
     else

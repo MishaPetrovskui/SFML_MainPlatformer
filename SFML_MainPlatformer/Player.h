@@ -14,7 +14,7 @@ private:
 public:
     Player(float startX = 50.f, float startY = 50.f);
 
-    void update(float dt, char map[][501], int mapWidth, int mapHeight, float tileSize, sf::View& view1, sf::Vector2f& view1POS, sf::RenderWindow& window);
+    void update(float dt, char map[][501], int mapWidth, int mapHeight, float tileSize, sf::View& view1, sf::RenderWindow& window);
     void draw(sf::RenderWindow& window, sf::View& view1);
 
     sf::Vector2f getPosition() { return shape.getPosition(); }

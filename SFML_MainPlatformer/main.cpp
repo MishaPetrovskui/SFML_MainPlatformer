@@ -17,6 +17,12 @@ float TileSize = 40.f;
 
 View view1(FloatRect({ 0, 0 }, { 1200, 800 }));
 
+enum GameState {
+    MENU,
+    PLAYING,
+    GAME_OVER
+};
+
 void drawMap(RenderWindow& window, map<char, Sprite>& spriteSheet)
 {
     for (int y = 0; y < MAP_HEIGHT; y++)
@@ -58,6 +64,82 @@ void drawBg(RenderWindow& window, map<char, Sprite>& spriteSheet)
     }
 }
 
+void drawMenu(RenderWindow& window, Font& font) 
+{
+    View menuView = window.getDefaultView();
+    window.setView(menuView);
+
+    RectangleShape background({ 1200.f, 800.f });
+    background.setFillColor(Color(20, 20, 40));
+    window.draw(background);
+
+    Text title(font, "PLATFORMER GAME", 60);
+    title.setFillColor(Color::White);
+    title.setOutlineColor(Color(100, 150, 255));
+    title.setOutlineThickness(3.f);
+    title.setPosition({ 75.f, 100.f });
+    window.draw(title);
+
+    Text authorsTitle(font, "Created by:", 27);
+    authorsTitle.setFillColor(Color(200, 200, 200));
+    authorsTitle.setPosition({ 450.f, 250.f });
+    window.draw(authorsTitle);
+
+    Text author1(font, "Petrovsky Mikhail (Dram)", 23);
+    author1.setFillColor(Color(150, 200, 255));
+    author1.setPosition({ 380.f, 310.f });
+    window.draw(author1);
+
+    Text author2(font, "Yashchenko Denis (HoWL)", 23);
+    author2.setFillColor(Color(150, 200, 255));
+    author2.setPosition({ 380.f, 350.f });
+    window.draw(author2);
+
+    RectangleShape buttonBg({ 300.f, 60.f });
+    buttonBg.setPosition({ 450.f, 480.f });
+    buttonBg.setFillColor(Color(50, 100, 200));
+    buttonBg.setOutlineColor(Color::White);
+    buttonBg.setOutlineThickness(3.f);
+    window.draw(buttonBg);
+
+    Text startText(font, "PRESS ENTER TO START", 9);
+    startText.setFillColor(Color::White);
+    startText.setPosition({ 480.f, 495.f });
+    window.draw(startText);
+
+    Text controls(font, "Controls:\nWASD/Arrows - Move\nSpace - Jump\nShift - Dash", 15);
+    controls.setFillColor(Color(180, 180, 180));
+    controls.setPosition({ 480.f, 600.f });
+    window.draw(controls);
+}
+
+void drawGameOver(RenderWindow& window, Font& font) {
+    View menuView = window.getDefaultView();
+    window.setView(menuView);
+
+    RectangleShape overlay({ 1200.f, 800.f });
+    overlay.setFillColor(Color(0, 0, 0, 200));
+    window.draw(overlay);
+
+    Text gameOverText(font, "GAME OVER", 75);
+    gameOverText.setFillColor(Color::Red);
+    gameOverText.setOutlineColor(Color::White);
+    gameOverText.setOutlineThickness(3.f);
+    gameOverText.setPosition({ 350.f, 250.f });
+    window.draw(gameOverText);
+
+    Text restartText(font, "Press ENTER to restart", 27);
+    restartText.setFillColor(Color::White);
+    restartText.setPosition({ 380.f, 400.f });
+    window.draw(restartText);
+
+    Text menuText(font, "Press ESC for menu", 23);
+    menuText.setFillColor(Color(200, 200, 200));
+    menuText.setPosition({ 420.f, 470.f });
+    window.draw(menuText);
+}
+
+
 int main()
 {
     FILE* file;
@@ -84,11 +166,17 @@ int main()
         {'O', Sprite(tx_BlueSky)},
     };
 
+    Font font;
+    if (!font.openFromFile("Fonts/DigitalPixelV100-Regular.ttf")) {
+        cout << "Font not found!" << endl;
+        return -1;
+    }
+
     RenderWindow window(VideoMode({ 1200, 800 }), "Hello world!");
 
     Player player(100.f, 100.f);
     Clock clock;
-
+    GameState gameState = MENU;
     while (window.isOpen()) {
 
         while (const optional event = window.pollEvent())
@@ -96,42 +184,78 @@ int main()
 
             if (event->is<Event::Closed>())
                 window.close();
-            if (event->is<Event::KeyPressed>() && event->getIf<Event::KeyPressed>()->code == Keyboard::Key::Escape) {
-                fclose(file);
-                window.close();
+            if (event->is<Event::KeyPressed>()) {
+                auto keyEvent = event->getIf<Event::KeyPressed>();
+
+                if (keyEvent->code == Keyboard::Key::Escape) {
+                    if (gameState == PLAYING) {
+                        gameState = MENU;
+                        player.reset();
+                    }
+                    else if (gameState == GAME_OVER) {
+                        gameState = MENU;
+                        player.reset();
+                    }
+                    else {
+                        window.close();
+                    }
+                }
+
+                if (keyEvent->code == Keyboard::Key::Enter) {
+                    if (gameState == MENU) {
+                        gameState = PLAYING;
+                        player.reset();
+                    }
+                    else if (gameState == GAME_OVER) {
+                        gameState = PLAYING;
+                        player.reset();
+                    }
+                }
             }
         }
 
         float dt = clock.restart().asSeconds();
-        player.update(dt, MAP, MAP_WIDTH, MAP_HEIGHT, TileSize, view1, window);
+        if (gameState == PLAYING) {
+            player.update(dt, MAP, MAP_WIDTH, MAP_HEIGHT, TileSize, view1, window);
+            if (!player.isAlive()) {
+                gameState = GAME_OVER;
+            }
+            Vector2f playerPos = player.getPosition();
+            Vector2f viewCenter = view1.getCenter();
 
-        // === Рух камери за гравцем ===
-        Vector2f playerPos = player.getPosition();
-        Vector2f viewCenter = view1.getCenter();
+            viewCenter.x += (playerPos.x - viewCenter.x) * 0.1f;
+            viewCenter.y += (playerPos.y - viewCenter.y) * 0.1f;
 
-        // Плавне слідування (lerp)
-        viewCenter.x += (playerPos.x - viewCenter.x) * 0.1f;
-        viewCenter.y += (playerPos.y - viewCenter.y) * 0.1f;
+            float mapWidthPx = MAP_WIDTH * TileSize;
+            float mapHeightPx = MAP_HEIGHT * TileSize;
 
-        // Межі карти (щоб камера не вийшла за межі)
-        float mapWidthPx = MAP_WIDTH * TileSize;
-        float mapHeightPx = MAP_HEIGHT * TileSize;
+            float halfWidth = view1.getSize().x / 2.f;
+            float halfHeight = view1.getSize().y / 2.f;
 
-        float halfWidth = view1.getSize().x / 2.f;
-        float halfHeight = view1.getSize().y / 2.f;
+            if (viewCenter.x < halfWidth) viewCenter.x = halfWidth;
+            if (viewCenter.y < halfHeight) viewCenter.y = halfHeight;
+            if (viewCenter.x > mapWidthPx - halfWidth) viewCenter.x = mapWidthPx - halfWidth;
+            if (viewCenter.y > mapHeightPx - halfHeight) viewCenter.y = mapHeightPx - halfHeight;
 
-        if (viewCenter.x < halfWidth) viewCenter.x = halfWidth;
-        if (viewCenter.y < halfHeight) viewCenter.y = halfHeight;
-        if (viewCenter.x > mapWidthPx - halfWidth) viewCenter.x = mapWidthPx - halfWidth;
-        if (viewCenter.y > mapHeightPx - halfHeight) viewCenter.y = mapHeightPx - halfHeight;
-
-        view1.setCenter(viewCenter);
-
+            view1.setCenter(viewCenter);
+        }
         window.clear(Color::Cyan);
-        window.setView(view1);
-		drawBg(window, spriteSheet);
-        drawMap(window, spriteSheet);
-        player.draw(window, view1);
+        if (gameState == MENU) {
+            drawMenu(window, font);
+        }
+        else if (gameState == PLAYING) {
+            window.setView(view1);
+            drawBg(window, spriteSheet);
+            drawMap(window, spriteSheet);
+            player.draw(window, view1);
+        }
+        else if (gameState == GAME_OVER) {
+            window.setView(view1);
+            drawBg(window, spriteSheet);
+            drawMap(window, spriteSheet);
+            player.draw(window, view1);
+            drawGameOver(window, font);
+        }
         window.display();
     }
 }

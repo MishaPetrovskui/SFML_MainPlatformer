@@ -2,6 +2,8 @@
 #include <iostream>
 #include <cmath>
 #include <map>
+#include <cstring>
+#include <set>
 #include "Player.h"
 #include "Enemy.h"
 
@@ -27,6 +29,125 @@ enum GameState {
     PLAYING,
     GAME_OVER
 };
+
+// Функция для диагностики карты
+void analyzeMaps() {
+    std::set<int> bgTiles, mainTiles, mobTiles, interestTiles;
+
+    for (int y = 0; y < MAP_HEIGHT; y++) {
+        for (int x = 0; x < MAP_WIDTH; x++) {
+            if (BackgroundMAP[y][x] != -1 && BackgroundMAP[y][x] != 0)
+                bgTiles.insert(BackgroundMAP[y][x]);
+            if (MAP[y][x] != -1 && MAP[y][x] != 0)
+                mainTiles.insert(MAP[y][x]);
+            if (MobMAP[y][x] != -1 && MobMAP[y][x] != 0)
+                mobTiles.insert(MobMAP[y][x]);
+            if (InterestingMAP[y][x] != -1 && InterestingMAP[y][x] != 0)
+                interestTiles.insert(InterestingMAP[y][x]);
+        }
+    }
+
+    cout << "\n=== MAP ANALYSIS ===" << endl;
+    cout << "Background tiles: ";
+    for (int t : bgTiles) cout << t << " ";
+    cout << endl;
+
+    cout << "Main MAP tiles: ";
+    for (int t : mainTiles) cout << t << " ";
+    cout << endl;
+
+    cout << "Mob tiles: ";
+    for (int t : mobTiles) cout << t << " ";
+    cout << endl;
+
+    cout << "Interesting tiles: ";
+    for (int t : interestTiles) cout << t << " ";
+    cout << endl;
+
+    // Ищем лаву (16, 17) и шипы (18-21) ВО ВСЕХ СЛОЯХ
+    cout << "\n=== HAZARD DETECTION ===" << endl;
+    int lavaCount = 0, spikeCount = 0;
+
+    for (int y = 0; y < MAP_HEIGHT; y++) {
+        for (int x = 0; x < MAP_WIDTH; x++) {
+            int t1 = MAP[y][x];
+            int t2 = BackgroundMAP[y][x];
+            int t3 = MobMAP[y][x];
+            int t4 = InterestingMAP[y][x];
+
+            // Проверяем лаву во всех слоях
+            if (t1 == 16 || t1 == 17 || t2 == 16 || t2 == 17 ||
+                t3 == 16 || t3 == 17 || t4 == 16 || t4 == 17) {
+                lavaCount++;
+                if (lavaCount <= 5) {
+                    int tile = (t1 == 16 || t1 == 17) ? t1 :
+                        (t2 == 16 || t2 == 17) ? t2 :
+                        (t3 == 16 || t3 == 17) ? t3 : t4;
+                    string layer = (t1 == 16 || t1 == 17) ? "MAP" :
+                        (t2 == 16 || t2 == 17) ? "BG" :
+                        (t3 == 16 || t3 == 17) ? "MOB" : "INTERESTING";
+                    cout << "Lava at (" << x << "," << y << ") - tile " << tile
+                        << " in layer " << layer << endl;
+                }
+            }
+
+            // Проверяем шипы во всех слоях
+            if ((t1 >= 18 && t1 <= 21) || (t2 >= 18 && t2 <= 21) ||
+                (t3 >= 18 && t3 <= 21) || (t4 >= 18 && t4 <= 21)) {
+                spikeCount++;
+                if (spikeCount <= 9) { // показываем все 9
+                    int tile = (t1 >= 18 && t1 <= 21) ? t1 :
+                        (t2 >= 18 && t2 <= 21) ? t2 :
+                        (t3 >= 18 && t3 <= 21) ? t3 : t4;
+                    string layer = (t1 >= 18 && t1 <= 21) ? "MAP" :
+                        (t2 >= 18 && t2 <= 21) ? "BG" :
+                        (t3 >= 18 && t3 <= 21) ? "MOB" : "INTERESTING";
+                    cout << "Spike at (" << x << "," << y << ") - tile " << tile
+                        << " in layer " << layer << endl;
+                }
+            }
+        }
+    }
+
+    cout << "Total lava tiles: " << lavaCount << endl;
+    cout << "Total spike tiles: " << spikeCount << endl;
+    cout << "==================\n" << endl;
+}
+
+static string keyToString(Keyboard::Key k) {
+    int ki = static_cast<int>(k);
+    int a = static_cast<int>(Keyboard::Key::A);
+    int z = static_cast<int>(Keyboard::Key::Z);
+    if (ki >= a && ki <= z) {
+        char c = 'A' + (ki - a);
+        return string(1, c);
+    }
+    int n0 = static_cast<int>(Keyboard::Key::Num0);
+    int n9 = static_cast<int>(Keyboard::Key::Num9);
+    if (ki >= n0 && ki <= n9) {
+        char c = '0' + (ki - n0);
+        return string(1, c);
+    }
+    switch (k) {
+    case Keyboard::Key::Space: return "Space";
+    case Keyboard::Key::LShift: return "LShift";
+    case Keyboard::Key::RShift: return "RShift";
+    case Keyboard::Key::LControl: return "LCtrl";
+    case Keyboard::Key::RControl: return "RCtrl";
+    case Keyboard::Key::LAlt: return "LAlt";
+    case Keyboard::Key::RAlt: return "RAlt";
+    case Keyboard::Key::Escape: return "Esc";
+    case Keyboard::Key::Enter: return "Enter";
+    case Keyboard::Key::Up: return "Up";
+    case Keyboard::Key::Down: return "Down";
+    case Keyboard::Key::Left: return "Left";
+    case Keyboard::Key::Right: return "Right";
+    case Keyboard::Key::Tab: return "Tab";
+    case Keyboard::Key::Backspace: return "Back";
+    default:
+        return "Key" + to_string(static_cast<int>(k));
+    }
+}
 
 void drawMap(RenderWindow& window, map<int, Sprite>& spriteSheet)
 {
@@ -108,7 +229,7 @@ void drawInteresting(RenderWindow& window, map<int, Sprite>& spriteSheet)
     }
 }
 
-void drawMenu(RenderWindow& window, Font& font)
+void drawMenu(RenderWindow& window, Font& font, Keyboard::Key attackKey, bool waitingForRemap)
 {
     View menuView = window.getDefaultView();
     window.setView(menuView);
@@ -146,15 +267,45 @@ void drawMenu(RenderWindow& window, Font& font)
     buttonBg.setOutlineThickness(3.f);
     window.draw(buttonBg);
 
-    Text startText(font, "PRESS ENTER TO START", 9);
+    Text startText(font, "PRESS ENTER TO START", 18);
     startText.setFillColor(Color::White);
     startText.setPosition({ 480.f, 495.f });
     window.draw(startText);
 
-    Text controls(font, "Controls:\nWASD/Arrows - Move\nSpace - Jump\nShift - Dash\nJ - Attack", 15);
+    RectangleShape remapBg({ 300.f, 60.f });
+    remapBg.setPosition({ 450.f, 560.f });
+    remapBg.setFillColor(Color(80, 80, 120));
+    remapBg.setOutlineColor(Color::White);
+    remapBg.setOutlineThickness(3.f);
+    window.draw(remapBg);
+
+    string attackName = keyToString(attackKey);
+    Text remapText(font, ("Attack: " + attackName + "  (Click to remap)"), 18);
+    remapText.setFillColor(Color::White);
+    remapText.setPosition({ 460.f, 575.f });
+    window.draw(remapText);
+
+    Text controls(font, "Controls:\nWASD/Arrows - Move\nSpace - Jump\nShift - Dash\nJ - Attack (default)", 15);
     controls.setFillColor(Color(180, 180, 180));
-    controls.setPosition({ 480.f, 600.f });
+    controls.setPosition({ 480.f, 650.f });
     window.draw(controls);
+
+    if (waitingForRemap) {
+        RectangleShape overlay({ 400.f, 120.f });
+        overlay.setFillColor(Color(0, 0, 0, 200));
+        overlay.setPosition({ 400.f, 300.f });
+        window.draw(overlay);
+
+        Text prompt(font, "Press any key to set attack", 24);
+        prompt.setFillColor(Color::White);
+        prompt.setPosition({ 430.f, 340.f });
+        window.draw(prompt);
+
+        Text hint(font, ("Current: " + attackName), 18);
+        hint.setFillColor(Color::Yellow);
+        hint.setPosition({ 430.f, 380.f });
+        window.draw(hint);
+    }
 }
 
 void drawGameOver(RenderWindow& window, Font& font) {
@@ -197,6 +348,11 @@ int main()
     fread(&InterestingMAP, sizeof(InterestingMAP), 1, file);
     fclose(file);
 
+    // ДИАГНОСТИКА КАРТЫ
+    analyzeMaps();
+
+    static int OriginalInterestingMAP[MAP_HEIGHT][MAP_WIDTH + 1] = {};
+    std::memcpy(OriginalInterestingMAP, InterestingMAP, sizeof(InterestingMAP));
     for (int y = 0; y < MAP_HEIGHT; y++)
         for (int x = 0; x < MAP_WIDTH; x++) {
             if (BackgroundMAP[y][x] == 0 && MAP[y][x] == 0)
@@ -207,7 +363,8 @@ int main()
     Texture tx_BlueSky, tx_DirtBG, tx_StoneBG, tx_Coin, tx_Slime;
     Texture tx_SlimeMan, tx_ClosedDoor, tx_OpenedDoor;
     Texture tx_GreenBricks, tx_GreenBricksBG, tx_GreenGrass;
-    Texture tx_Lava, tx_LavaTop;
+    Texture tx_Lava, tx_LavaTop, tx_Spikes, tx_SpikesLeft;
+    Texture tx_SpikesRight, tx_SpikesTop;
 
     tx_Undefined.loadFromFile("Sprites/Undefined.png");
     tx_Dirt.loadFromFile("Sprites/Dirt.png");
@@ -227,6 +384,10 @@ int main()
     tx_GreenGrass.loadFromFile("Sprites/GreenGrass.png");
     tx_Lava.loadFromFile("Sprites/Lava.png");
     tx_LavaTop.loadFromFile("Sprites/LavaTop.png");
+    tx_Spikes.loadFromFile("Sprites/Spikes.png");
+    tx_SpikesLeft.loadFromFile("Sprites/SpikesLeft.png");
+    tx_SpikesRight.loadFromFile("Sprites/SpikesRight.png");
+    tx_SpikesTop.loadFromFile("Sprites/SpikesTop.png");
 
     map<int, Sprite> spriteSheet = {
         {0, Sprite(tx_Undefined)},
@@ -247,6 +408,10 @@ int main()
         {15, Sprite(tx_GreenGrass)},
         {16, Sprite(tx_Lava)},
         {17, Sprite(tx_LavaTop)},
+        {18, Sprite(tx_Spikes)},
+        {19, Sprite(tx_SpikesLeft)},
+        {20, Sprite(tx_SpikesRight)},
+        {21, Sprite(tx_SpikesTop)},
     };
 
     std::vector<std::tuple<int, int, int>> mobTemplate;
@@ -283,6 +448,8 @@ int main()
     Clock clock;
     GameState gameState = MENU;
 
+    bool waitingForRemap = false;
+
     while (window.isOpen()) {
         while (const optional event = window.pollEvent())
         {
@@ -309,6 +476,7 @@ int main()
                 if (keyEvent->code == Keyboard::Key::Enter) {
                     if (gameState == MENU) {
                         gameState = PLAYING;
+                        std::memcpy(InterestingMAP, OriginalInterestingMAP, sizeof(InterestingMAP));
                         player.reset();
                         enemies.clear();
                         for (auto& t : mobTemplate) {
@@ -321,6 +489,7 @@ int main()
                     }
                     else if (gameState == GAME_OVER) {
                         gameState = PLAYING;
+                        std::memcpy(InterestingMAP, OriginalInterestingMAP, sizeof(InterestingMAP));
                         player.reset();
                         enemies.clear();
                         for (auto& t : mobTemplate) {
@@ -330,6 +499,38 @@ int main()
                             else if (tile == 9) enemies.emplace_back(x * TileSize, y * TileSize, tx_SlimeMan, TileSize);
                         }
                         if (enemies.empty()) enemies.emplace_back(5.f * TileSize, 8.f * TileSize, tx_Slime, TileSize);
+                    }
+                }
+
+                if (waitingForRemap) {
+                    player.setAttackKey(keyEvent->code);
+                    waitingForRemap = false;
+                }
+            }
+
+            if (event->is<Event::MouseButtonPressed>()) {
+                if (gameState == MENU) {
+                    auto mp = event->getIf<Event::MouseButtonPressed>()->position;
+                    Vector2f worldPos = window.mapPixelToCoords(mp, window.getDefaultView());
+                    FloatRect playRect({ 450.f, 480.f }, { 300.f, 60.f });
+                    FloatRect remapRect({ 450.f, 560.f }, { 300.f, 60.f });
+
+                    if (playRect.contains(worldPos)) {
+                        gameState = PLAYING;
+                        std::memcpy(InterestingMAP, OriginalInterestingMAP, sizeof(InterestingMAP));
+                        player.reset();
+                        enemies.clear();
+                        for (auto& t : mobTemplate) {
+                            int x, y, tile;
+                            std::tie(x, y, tile) = t;
+                            if (tile == 8) enemies.emplace_back(x * TileSize, y * TileSize, tx_Slime, TileSize);
+                            else if (tile == 9) enemies.emplace_back(x * TileSize, y * TileSize, tx_SlimeMan, TileSize);
+                        }
+                        if (enemies.empty()) enemies.emplace_back(5.f * TileSize, 8.f * TileSize, tx_Slime, TileSize);
+                    }
+                    else if (remapRect.contains(worldPos)) {
+                        waitingForRemap = true;
+                        std::cout << "Press a key to remap attack..." << std::endl;
                     }
                 }
             }
@@ -370,7 +571,7 @@ int main()
         window.clear(Color::Cyan);
 
         if (gameState == MENU) {
-            drawMenu(window, font);
+            drawMenu(window, font, player.getAttackKey(), waitingForRemap);
         }
         else if (gameState == PLAYING) {
             window.setView(view1);

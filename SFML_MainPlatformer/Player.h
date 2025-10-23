@@ -39,6 +39,15 @@ private:
 
     float lavaDamageAccum;
 
+    // Ўипы
+    float spikeInvulTimer;
+    float spikeInvulDuration;
+    int spikeDamage;
+    bool wasOnSpike; // новый флаг Ч чтобы наносить урон один раз при входе на шип
+
+    // ѕереназначаема€ клавиша атаки
+    sf::Keyboard::Key attackKey;
+
     bool checkWallContact(int map[][501], int mapWidth, int mapHeight, float tileSize);
 
 public:
@@ -53,4 +62,7 @@ public:
     void applyDamage(int dmg) { hp -= dmg; if (hp < 0) hp = 0; }
     int getHP() const { return hp; }
     int getCoins() const { return coins; }
+
+    void setAttackKey(sf::Keyboard::Key k) { attackKey = k; }
+    sf::Keyboard::Key getAttackKey() const { return attackKey; }
 };

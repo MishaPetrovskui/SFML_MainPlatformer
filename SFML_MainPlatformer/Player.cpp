@@ -44,8 +44,14 @@ Player::Player(float startX, float startY) {
     attackCooldown = 0.4f;
     attackTimer = 0.f;
     attackDamage = 30;
+    attackKey = sf::Keyboard::Key::J; // default
 
     lavaDamageAccum = 0.f;
+
+    spikeInvulTimer = 0.f;
+    spikeInvulDuration = 0.6f;
+    spikeDamage = 10;
+    wasOnSpike = false;
 }
 
 bool Player::checkWallContact(int map[][501], int mapWidth, int mapHeight, float tileSize) {
@@ -91,6 +97,9 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
     }
 
     if (attackTimer > 0.f) attackTimer -= dt;
+
+    // spike invul timer
+    if (spikeInvulTimer > 0.f) spikeInvulTimer -= dt;
 
     if (isDashing) {
         dashTimer -= dt;
@@ -211,11 +220,11 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
         shape.setFillColor(sf::Color::Cyan);
     }
 
-    // Attack input - увеличенный радиус атаки игрока
-    const float attackRadius = 60.f; // увеличенный радиус атаки (в пикселях)
-    bool attackPressed = sf::Keyboard::isKeyPressed(sf::Keyboard::Key::J);
+    // Attack input
+    bool attackPressed = sf::Keyboard::isKeyPressed(attackKey);
     if (attackPressed && attackTimer <= 0.f) {
         sf::FloatRect pBounds = shape.getGlobalBounds();
+        const float attackRadius = 60.f;
         sf::FloatRect attackRect = expandRect(pBounds, attackRadius);
 
         for (auto& e : enemies) {
@@ -277,9 +286,9 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
 
     shape.setPosition(nextPos);
 
-    // Coins collection (InterestingMAP tiles == 7) - немного увеличенная зона подбора
+    // Coins collection
     sf::FloatRect playerBounds = shape.getGlobalBounds();
-    const float collectPadding = 8.f; // расширение зоны подбора монет
+    const float collectPadding = 8.f;
     sf::FloatRect collectRect = expandRect(playerBounds, collectPadding);
     for (int y = 0; y < mapHeight; ++y) {
         for (int x = 0; x < mapWidth; ++x) {
@@ -294,33 +303,69 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
         }
     }
 
-    const float lavaDPS = 8.f;
+    // Lava & spikes detection - ИСПРАВЛЕНО: проверяем InterestingMAP!
+    const float lavaDPS = 25.f;
     bool onLava = false;
-    for (int y = 0; y < mapHeight; ++y) {
-        for (int x = 0; x < mapWidth; ++x) {
-            int tile1 = map[y][x];
-            int tile2 = backgroundMap[y][x];
-            if (tile1 == 16 || tile1 == 17 || tile2 == 16 || tile2 == 17) {
-                sf::FloatRect tileRect({ static_cast<float>(x) * tileSize, static_cast<float>(y) * tileSize }, { tileSize, tileSize });
+    bool onSpike = false;
+
+    // Получаем границы игрока для проверки
+    float pLeft = playerBounds.position.x;
+    float pRight = playerBounds.position.x + playerBounds.size.x;
+    float pTop = playerBounds.position.y;
+    float pBottom = playerBounds.position.y + playerBounds.size.y;
+
+    // Вычисляем диапазон тайлов для проверки (оптимизация)
+    int startX = std::max(0, (int)(pLeft / tileSize) - 1);
+    int endX = std::min(mapWidth, (int)(pRight / tileSize) + 2);
+    int startY = std::max(0, (int)(pTop / tileSize) - 1);
+    int endY = std::min(mapHeight, (int)(pBottom / tileSize) + 2);
+
+    for (int y = startY; y < endY; ++y) {
+        for (int x = startX; x < endX; ++x) {
+            int t1 = map[y][x];
+            int t2 = backgroundMap[y][x];
+            int t3 = interestingMap[y][x]; // ДОБАВЛЕНО!
+
+            sf::FloatRect tileRect({ static_cast<float>(x) * tileSize, static_cast<float>(y) * tileSize }, { tileSize, tileSize });
+
+            // Проверка лавы (tiles 16, 17) во ВСЕХ слоях
+            if (t1 == 16 || t1 == 17 || t2 == 16 || t2 == 17 || t3 == 16 || t3 == 17) {
                 if (rectsIntersect(playerBounds, tileRect)) {
                     onLava = true;
-                    break;
+                }
+            }
+
+            // Проверка шипов (tiles 18-21) во ВСЕХ слоях
+            if ((t1 >= 18 && t1 <= 21) || (t2 >= 18 && t2 <= 21) || (t3 >= 18 && t3 <= 21)) {
+                if (rectsIntersect(playerBounds, tileRect)) {
+                    onSpike = true;
                 }
             }
         }
-        if (onLava) break;
     }
 
+    // Применяем урон от лавы
     if (onLava) {
         lavaDamageAccum += lavaDPS * dt;
         int dmg = static_cast<int>(lavaDamageAccum);
         if (dmg > 0) {
-            hp -= dmg;
+            applyDamage(dmg);
             lavaDamageAccum -= static_cast<float>(dmg);
-            if (hp < 0) hp = 0;
+        }
+    }
+    else {
+        lavaDamageAccum = 0.f;
+    }
+
+    // Применяем урон от шипов с таймером неуязвимости
+    if (onSpike) {
+        if (spikeInvulTimer <= 0.f) {
+            applyDamage(spikeDamage);
+            spikeInvulTimer = spikeInvulDuration;
         }
     }
 
+    // Fall off map -> immediate death
     float mapHeightPx = mapHeight * tileSize;
     if (shape.getPosition().y > mapHeightPx + 100.f) {
         hp = 0;
@@ -330,6 +375,7 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
         return;
     }
 
+    // Enemy contact damage
     for (auto& e : enemies) {
         if (!e.isAlive()) continue;
         int dmg = e.checkAndGetContactDamage(playerBounds, dt);
@@ -342,6 +388,7 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
 void Player::draw(sf::RenderWindow& window, sf::View& view1, sf::Font& font) {
     window.draw(shape);
 
+    // Stamina
     sf::RectangleShape staminaBg;
     staminaBg.setSize({ maxStamina * 0.2f, 5.f });
     staminaBg.setFillColor(sf::Color(50, 50, 50));
@@ -354,6 +401,7 @@ void Player::draw(sf::RenderWindow& window, sf::View& view1, sf::Font& font) {
     staminaBar.setPosition({ shape.getPosition().x, shape.getPosition().y - 10.f });
     window.draw(staminaBar);
 
+    // HP bar
     float hpBarW = 60.f;
     sf::RectangleShape hpBg;
     hpBg.setSize({ hpBarW, 8.f });
@@ -368,6 +416,7 @@ void Player::draw(sf::RenderWindow& window, sf::View& view1, sf::Font& font) {
     hpBar.setPosition({ shape.getPosition().x, shape.getPosition().y - 20.f });
     window.draw(hpBar);
 
+    // Coins text
     sf::Text coinText(font);
     coinText.setFont(font);
     coinText.setCharacterSize(16);
@@ -376,6 +425,7 @@ void Player::draw(sf::RenderWindow& window, sf::View& view1, sf::Font& font) {
     coinText.setPosition({ shape.getPosition().x, shape.getPosition().y - 40.f });
     window.draw(coinText);
 
+    // HP text
     sf::Text hpText(font);
     hpText.setFont(font);
     hpText.setCharacterSize(14);
@@ -398,4 +448,6 @@ void Player::reset() {
     shape.setFillColor(sf::Color::Red);
     attackTimer = 0.f;
     lavaDamageAccum = 0.f;
+    spikeInvulTimer = 0.f;
+    wasOnSpike = false;
 }

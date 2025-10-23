@@ -1,5 +1,15 @@
 #include "Player.h"
+#include "Enemy.h"
 #include <algorithm>
+
+static bool rectsIntersect(const sf::FloatRect& a, const sf::FloatRect& b) {
+    return (a.position.x < b.position.x + b.size.x) && (a.position.x + a.size.x > b.position.x) &&
+        (a.position.y < b.position.y + b.size.y) && (a.position.y + a.size.y > b.position.y);
+}
+
+static sf::FloatRect expandRect(const sf::FloatRect& r, float pad) {
+    return sf::FloatRect({ r.position.x - pad, r.position.y - pad }, { r.size.x + pad * 2.f, r.size.y + pad * 2.f });
+}
 
 Player::Player(float startX, float startY) {
     shape.setSize({ 30.f, 40.f });
@@ -26,9 +36,19 @@ Player::Player(float startX, float startY) {
     dashCooldown = 0.5f;
     dashCooldownTimer = 0.f;
     dashDirection = { 0.f, 0.f };
+
+    maxHp = 100;
+    hp = maxHp;
+    coins = 0;
+
+    attackCooldown = 0.4f;
+    attackTimer = 0.f;
+    attackDamage = 30;
+
+    lavaDamageAccum = 0.f;
 }
 
-bool Player::checkWallContact(char map[][501], int mapWidth, int mapHeight, float tileSize) {
+bool Player::checkWallContact(int map[][501], int mapWidth, int mapHeight, float tileSize) {
     sf::FloatRect playerBounds = shape.getGlobalBounds();
     float px = playerBounds.position.x;
     float py = playerBounds.position.y;
@@ -37,27 +57,23 @@ bool Player::checkWallContact(char map[][501], int mapWidth, int mapHeight, floa
 
     wallDirection = 0;
 
-    // Проверка стен слева и справа
     for (int y = 0; y < mapHeight; ++y) {
         for (int x = 0; x < mapWidth; ++x) {
-            char tile = map[y][x];
-            if (tile == ' ' || tile == '\0') continue;
+            int tile = map[y][x];
+            if (tile == -1) continue;
 
             float tx = x * tileSize;
             float ty = y * tileSize;
             float tw = tileSize;
             float th = tileSize;
 
-            // Проверка пересечения по вертикали
             if (py + ph > ty && py < ty + th) {
-                // Проверка касания левой стороны игрока с правой стороной блока
                 if (std::abs(px - (tx + tw)) < 5.f) {
-                    wallDirection = -1; // стена слева
+                    wallDirection = -1;
                     return true;
                 }
-                // Проверка касания правой стороны игрока с левой стороной блока
                 if (std::abs((px + pw) - tx) < 5.f) {
-                    wallDirection = 1; // стена справа
+                    wallDirection = 1;
                     return true;
                 }
             }
@@ -67,14 +83,15 @@ bool Player::checkWallContact(char map[][501], int mapWidth, int mapHeight, floa
     return false;
 }
 
-void Player::update(float dt, char map[][501], int mapWidth, int mapHeight, float tileSize, sf::View& view1, sf::RenderWindow& window) {
+void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float tileSize, sf::View& view1, sf::RenderWindow& window,
+    int mobMap[][501], int interestingMap[][501], int backgroundMap[][501], std::vector<Enemy>& enemies) {
 
-    // Обновление кулдауна деша
     if (dashCooldownTimer > 0.f) {
         dashCooldownTimer -= dt;
     }
 
-    // Логика деша
+    if (attackTimer > 0.f) attackTimer -= dt;
+
     if (isDashing) {
         dashTimer -= dt;
         if (dashTimer <= 0.f) {
@@ -86,7 +103,6 @@ void Player::update(float dt, char map[][501], int mapWidth, int mapHeight, floa
         }
     }
     else {
-        // Активация деша (Shift)
         if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::LShift) && dashCooldownTimer <= 0.f && stamina >= 50.f) {
             sf::Vector2f dashDir = { 0.f, 0.f };
 
@@ -100,23 +116,19 @@ void Player::update(float dt, char map[][501], int mapWidth, int mapHeight, floa
             else if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::S) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Down))
                 dashDir.y = 1.f;
 
-            // Нормализация направления
             float length = std::sqrt(dashDir.x * dashDir.x + dashDir.y * dashDir.y);
             if (length > 0.f) {
                 dashDirection = dashDir / length;
                 isDashing = true;
                 dashTimer = dashDuration;
                 dashCooldownTimer = dashCooldown;
-                stamina -= 50.f; // расход стамины на деш
+                stamina -= 50.f;
             }
         }
 
-        // Проверка контакта со стеной
         bool touchingWall = checkWallContact(map, mapWidth, mapHeight, tileSize);
 
-        // Скольжение по стене
         if (touchingWall && !onGround && velocity.y > 0.f) {
-            // Проверка удержания клавиши в сторону стены
             bool pressingIntoWall = false;
             if (wallDirection == -1 && (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::A) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Left))) {
                 pressingIntoWall = true;
@@ -127,11 +139,10 @@ void Player::update(float dt, char map[][501], int mapWidth, int mapHeight, floa
 
             if (pressingIntoWall && stamina > 0.f) {
                 isSliding = true;
-                velocity.y = 50.f; // медленное скольжение вниз
+                velocity.y = 50.f;
                 stamina -= staminaConsumption * dt;
                 if (stamina < 0.f) stamina = 0.f;
-
-                shape.setFillColor(sf::Color::Yellow); // визуальный индикатор скольжения
+                shape.setFillColor(sf::Color::Yellow);
             }
             else {
                 isSliding = false;
@@ -144,29 +155,25 @@ void Player::update(float dt, char map[][501], int mapWidth, int mapHeight, floa
                 shape.setFillColor(sf::Color::Red);
             }
 
-            // Восстановление стамины на земле
             if (onGround && stamina < maxStamina) {
                 stamina += staminaRegenRate * dt;
                 if (stamina > maxStamina) stamina = maxStamina;
             }
         }
 
-        // Отталкивание от стены при скольжении
         if (isSliding) {
-            // Прыжок вверх от стены (Space/W)
             if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::W) ||
                 sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Up) ||
                 sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Space)) {
 
-                if (stamina >= 20.f) { // минимальная стамина для прыжка
+                if (stamina >= 20.f) {
                     velocity.y = -420.f;
-                    velocity.x = -wallDirection * speed * 1.5f; // отталкивание в противоположную сторону
+                    velocity.x = -wallDirection * speed * 1.5f;
                     stamina -= 20.f;
                     isSliding = false;
                     shape.setFillColor(sf::Color::Red);
                 }
             }
-            // Отскок вниз от стены (S)
             else if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::S) ||
                 sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Down)) {
                 velocity.y = 200.f;
@@ -176,7 +183,6 @@ void Player::update(float dt, char map[][501], int mapWidth, int mapHeight, floa
             }
         }
 
-        // Обычное управление (если не скользим и не дэшим)
         if (!isSliding && !isDashing) {
             if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::A) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Left)) {
                 velocity.x = -speed;
@@ -188,28 +194,39 @@ void Player::update(float dt, char map[][501], int mapWidth, int mapHeight, floa
                 velocity.x = 0.f;
             }
 
-            // Обычный прыжок с земли
-            if ((/*sf::Keyboard::isKeyPressed(sf::Keyboard::Key::W) ||*/
-                sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Up) ||
+            if ((sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Up) ||
                 sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Space)) && onGround) {
                 velocity.y = -420.f;
                 onGround = false;
             }
         }
 
-        // Гравитация
         if (!isDashing) {
             velocity.y += gravity * dt;
             if (velocity.y > 1000.f) velocity.y = 1000.f;
         }
     }
 
-    // Визуальный индикатор деша
     if (isDashing) {
         shape.setFillColor(sf::Color::Cyan);
     }
 
-    // Движение и коллизии
+    // Attack input - увеличенный радиус атаки игрока
+    const float attackRadius = 60.f; // увеличенный радиус атаки (в пикселях)
+    bool attackPressed = sf::Keyboard::isKeyPressed(sf::Keyboard::Key::J);
+    if (attackPressed && attackTimer <= 0.f) {
+        sf::FloatRect pBounds = shape.getGlobalBounds();
+        sf::FloatRect attackRect = expandRect(pBounds, attackRadius);
+
+        for (auto& e : enemies) {
+            if (!e.isAlive()) continue;
+            if (rectsIntersect(attackRect, e.getBounds())) {
+                e.takeDamage(attackDamage);
+            }
+        }
+        attackTimer = attackCooldown;
+    }
+
     sf::Vector2f nextPos = shape.getPosition() + velocity * dt;
     float px = nextPos.x;
     float py = nextPos.y;
@@ -220,8 +237,8 @@ void Player::update(float dt, char map[][501], int mapWidth, int mapHeight, floa
 
     for (int y = 0; y < mapHeight; ++y) {
         for (int x = 0; x < mapWidth; ++x) {
-            char tile = map[y][x];
-            if (tile == ' ' || tile == '\0') continue;
+            int tile = map[y][x];
+            if (tile == -1) continue;
 
             float tx = x * tileSize;
             float ty = y * tileSize;
@@ -260,36 +277,112 @@ void Player::update(float dt, char map[][501], int mapWidth, int mapHeight, floa
 
     shape.setPosition(nextPos);
 
-    // Проверка падения (возврат на спавн)
+    // Coins collection (InterestingMAP tiles == 7) - немного увеличенная зона подбора
+    sf::FloatRect playerBounds = shape.getGlobalBounds();
+    const float collectPadding = 8.f; // расширение зоны подбора монет
+    sf::FloatRect collectRect = expandRect(playerBounds, collectPadding);
+    for (int y = 0; y < mapHeight; ++y) {
+        for (int x = 0; x < mapWidth; ++x) {
+            int tile = interestingMap[y][x];
+            if (tile == 7) {
+                sf::FloatRect tileRect({ static_cast<float>(x) * tileSize, static_cast<float>(y) * tileSize }, { tileSize, tileSize });
+                if (rectsIntersect(collectRect, tileRect)) {
+                    coins += 1;
+                    interestingMap[y][x] = -1;
+                }
+            }
+        }
+    }
+
+    const float lavaDPS = 8.f;
+    bool onLava = false;
+    for (int y = 0; y < mapHeight; ++y) {
+        for (int x = 0; x < mapWidth; ++x) {
+            int tile1 = map[y][x];
+            int tile2 = backgroundMap[y][x];
+            if (tile1 == 16 || tile1 == 17 || tile2 == 16 || tile2 == 17) {
+                sf::FloatRect tileRect({ static_cast<float>(x) * tileSize, static_cast<float>(y) * tileSize }, { tileSize, tileSize });
+                if (rectsIntersect(playerBounds, tileRect)) {
+                    onLava = true;
+                    break;
+                }
+            }
+        }
+        if (onLava) break;
+    }
+
+    if (onLava) {
+        lavaDamageAccum += lavaDPS * dt;
+        int dmg = static_cast<int>(lavaDamageAccum);
+        if (dmg > 0) {
+            hp -= dmg;
+            lavaDamageAccum -= static_cast<float>(dmg);
+            if (hp < 0) hp = 0;
+        }
+    }
+
     float mapHeightPx = mapHeight * tileSize;
     if (shape.getPosition().y > mapHeightPx + 100.f) {
-        shape.setPosition(spawnPoint);
-        lives--;
+        hp = 0;
         velocity = { 0.f, 0.f };
-        stamina = maxStamina;
         isDashing = false;
         dashCooldownTimer = 0.f;
-        shape.setFillColor(sf::Color::Red);
+        return;
+    }
+
+    for (auto& e : enemies) {
+        if (!e.isAlive()) continue;
+        int dmg = e.checkAndGetContactDamage(playerBounds, dt);
+        if (dmg > 0) {
+            applyDamage(dmg);
+        }
     }
 }
 
-void Player::draw(sf::RenderWindow& window, sf::View& view1) {
+void Player::draw(sf::RenderWindow& window, sf::View& view1, sf::Font& font) {
     window.draw(shape);
 
-    // Отрисовка полоски стамины
+    sf::RectangleShape staminaBg;
+    staminaBg.setSize({ maxStamina * 0.2f, 5.f });
+    staminaBg.setFillColor(sf::Color(50, 50, 50));
+    staminaBg.setPosition({ shape.getPosition().x, shape.getPosition().y - 10.f });
+    window.draw(staminaBg);
+
     sf::RectangleShape staminaBar;
-    staminaBar.setSize({ stamina, 5.f });
+    staminaBar.setSize({ stamina * 0.2f, 5.f });
     staminaBar.setFillColor(sf::Color::Green);
     staminaBar.setPosition({ shape.getPosition().x, shape.getPosition().y - 10.f });
     window.draw(staminaBar);
 
-    // Фон полоски стамины
-    sf::RectangleShape staminaBg;
-    staminaBg.setSize({ maxStamina, 5.f });
-    staminaBg.setFillColor(sf::Color(50, 50, 50));
-    staminaBg.setPosition({ shape.getPosition().x, shape.getPosition().y - 10.f });
-    window.draw(staminaBg);
-    window.draw(staminaBar);
+    float hpBarW = 60.f;
+    sf::RectangleShape hpBg;
+    hpBg.setSize({ hpBarW, 8.f });
+    hpBg.setFillColor(sf::Color(50, 50, 50));
+    hpBg.setPosition({ shape.getPosition().x, shape.getPosition().y - 20.f });
+    window.draw(hpBg);
+
+    sf::RectangleShape hpBar;
+    float hpPerc = (float)hp / (float)maxHp;
+    hpBar.setSize({ hpBarW * std::max(0.f, hpPerc), 8.f });
+    hpBar.setFillColor(sf::Color::Red);
+    hpBar.setPosition({ shape.getPosition().x, shape.getPosition().y - 20.f });
+    window.draw(hpBar);
+
+    sf::Text coinText(font);
+    coinText.setFont(font);
+    coinText.setCharacterSize(16);
+    coinText.setFillColor(sf::Color::Yellow);
+    coinText.setString("Coins: " + std::to_string(coins));
+    coinText.setPosition({ shape.getPosition().x, shape.getPosition().y - 40.f });
+    window.draw(coinText);
+
+    sf::Text hpText(font);
+    hpText.setFont(font);
+    hpText.setCharacterSize(14);
+    hpText.setFillColor(sf::Color::White);
+    hpText.setString("HP: " + std::to_string(hp));
+    hpText.setPosition({ shape.getPosition().x + hpBarW + 5.f, shape.getPosition().y - 22.f });
+    window.draw(hpText);
 
     window.setView(view1);
 }
@@ -298,8 +391,11 @@ void Player::reset() {
     shape.setPosition(spawnPoint);
     velocity = { 0.f, 0.f };
     stamina = maxStamina;
-    lives = 1;
+    hp = maxHp;
+    coins = 0;
     isDashing = false;
     dashCooldownTimer = 0.f;
     shape.setFillColor(sf::Color::Red);
+    attackTimer = 0.f;
+    lavaDamageAccum = 0.f;
 }

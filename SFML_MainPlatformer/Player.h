@@ -1,8 +1,12 @@
 #pragma once
-#include <SFML/Graphics.hpp>;
-#include <iostream>;
-#include <Math.h>;
+#include <SFML/Graphics.hpp>
+#include <iostream>
+#include <cmath>
 #include <map>
+#include <vector>
+
+class Enemy;
+
 class Player {
 private:
     sf::RectangleShape shape;
@@ -24,14 +28,29 @@ private:
     float dashCooldown;
     float dashCooldownTimer;
     sf::Vector2f dashDirection;
-    int lives = 1;
-    bool checkWallContact(char map[][501], int mapWidth, int mapHeight, float tileSize);
+
+    int hp;
+    int maxHp;
+    int coins;
+
+    float attackCooldown;
+    float attackTimer;
+    int attackDamage;
+
+    float lavaDamageAccum;
+
+    bool checkWallContact(int map[][501], int mapWidth, int mapHeight, float tileSize);
+
 public:
     Player(float startX = 50.f, float startY = 50.f);
-
-    void update(float dt, char map[][501], int mapWidth, int mapHeight, float tileSize, sf::View& view1, sf::RenderWindow& window);
-    void draw(sf::RenderWindow& window, sf::View& view1);
+    void update(float dt, int map[][501], int mapWidth, int mapHeight, float tileSize, sf::View& view1, sf::RenderWindow& window,
+        int mobMap[][501], int interestingMap[][501], int backgroundMap[][501], std::vector<Enemy>& enemies);
+    void draw(sf::RenderWindow& window, sf::View& view1, sf::Font& font);
     sf::Vector2f getPosition() { return shape.getPosition(); }
     void reset();
-    bool isAlive() { return lives > 0; }
+    bool isAlive() { return hp > 0; }
+
+    void applyDamage(int dmg) { hp -= dmg; if (hp < 0) hp = 0; }
+    int getHP() const { return hp; }
+    int getCoins() const { return coins; }
 };

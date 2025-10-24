@@ -22,14 +22,10 @@ private:
     float contactTimer;
     int contactDamage;
     float patrolRange;
-
-    // вертикальная физика
     float gravity;
     float velocityY;
-
 public:
     Enemy(float x, float y, sf::Texture& texture, float tileSize);
-    // Добавлены параметры карты и тайлсайз для проверки опоры под врагом
     void update(float dt, const sf::Vector2f& playerPos, int map[][501], int mapWidth, int mapHeight, float tileSize);
     void draw(sf::RenderWindow& window);
     void takeDamage(int dmg);

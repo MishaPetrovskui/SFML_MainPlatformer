@@ -4,13 +4,14 @@
 #include <map>
 #include <cstring>
 #include <set>
+#include <windows.h>
 #include "Player.h"
 #include "Enemy.h"
 
 using namespace sf;
 using namespace std;
 
-#define FILE_PATH "Map.txt"
+#define FILE_PATH "Map1.txt"
 
 const static int MAP_WIDTH = 500;
 const static int MAP_HEIGHT = 20;
@@ -241,7 +242,7 @@ void DrawMenuButton(RenderWindow& window, const FloatRect& rect, const string& t
     FloatRect bounds = txt.getLocalBounds();
     txt.setPosition({
         rect.position.x + (rect.size.x - bounds.size.x) / 2.f,
-        rect.position.y + (rect.size.y - bounds.size.y) / 2.f
+		rect.position.y + (rect.size.y - bounds.size.y) / 2.f + 7.f
     });
     window.draw(txt);
 }
@@ -441,6 +442,49 @@ void drawGameOver(RenderWindow& window, Font& font) {
     window.draw(menuText);
 }
 
+void drawEndInfo(RenderWindow& window, Font& font, float finalTime, int coins, int kills, bool completed) {
+    View menuView = window.getDefaultView();
+    window.setView(menuView);
+
+    RectangleShape overlay({ 1200.f, 800.f });
+    overlay.setFillColor(Color(0, 0, 0, 200));
+    window.draw(overlay);
+
+    string titleStr = completed ? "LEVEL COMPLETE" : "GAME OVER";
+    Text title(font, titleStr, 64);
+    title.setFillColor(completed ? Color(0, 200, 100) : Color::Red);
+    title.setOutlineColor(Color::White);
+    title.setOutlineThickness(3.f);
+    FloatRect tBounds = title.getLocalBounds();
+    title.setPosition({ (1200.f - tBounds.size.x) / 2.f, 140.f });
+    window.draw(title);
+
+    Text timeLabel(font, string("Time: ") + FormatTime(finalTime), 28);
+    timeLabel.setFillColor(Color::White);
+    timeLabel.setPosition({ 420.f, 280.f });
+    window.draw(timeLabel);
+
+    Text coinsLabel(font, string("Coins: ") + to_string(coins), 28);
+    coinsLabel.setFillColor(Color::Yellow);
+    coinsLabel.setPosition({ 420.f, 330.f });
+    window.draw(coinsLabel);
+
+    Text killsLabel(font, string("Enemies killed: ") + to_string(kills), 28);
+    killsLabel.setFillColor(Color::White);
+    killsLabel.setPosition({ 420.f, 380.f });
+    window.draw(killsLabel);
+
+    Text restartText(font, "Press ENTER to restart", 24);
+    restartText.setFillColor(Color::White);
+    restartText.setPosition({ 430.f, 460.f });
+    window.draw(restartText);
+
+    Text menuText(font, "Press ESC for menu", 20);
+    menuText.setFillColor(Color(200, 200, 200));
+    menuText.setPosition({ 470.f, 500.f });
+    window.draw(menuText);
+}
+
 int main()
 {
     FILE* file;
@@ -470,7 +514,8 @@ int main()
     Texture tx_SlimeMan, tx_ClosedDoor, tx_OpenedDoor;
     Texture tx_GreenBricks, tx_GreenBricksBG, tx_GreenGrass;
     Texture tx_Lava, tx_LavaTop, tx_Spikes, tx_SpikesLeft;
-    Texture tx_SpikesRight, tx_SpikesTop;
+    Texture tx_SpikesRight, tx_SpikesTop, tx_Key, tx_BluePortal;
+    Texture tx_OrangePortal;
 
     tx_Undefined.loadFromFile("Sprites/Undefined.png");
     tx_Dirt.loadFromFile("Sprites/Dirt.png");
@@ -494,6 +539,9 @@ int main()
     tx_SpikesLeft.loadFromFile("Sprites/SpikesLeft.png");
     tx_SpikesRight.loadFromFile("Sprites/SpikesRight.png");
     tx_SpikesTop.loadFromFile("Sprites/SpikesTop.png");
+    tx_Key.loadFromFile("Sprites/Key.png");
+    tx_BluePortal.loadFromFile("Sprites/BluePortal.png");
+    tx_OrangePortal.loadFromFile("Sprites/OrangePortal.png");
 
     map<int, Sprite> spriteSheet = {
         {0, Sprite(tx_Undefined)},
@@ -508,8 +556,8 @@ int main()
         {9, Sprite(tx_SlimeMan)},
         {10, Sprite(tx_DirtBG)},
         {11, Sprite(tx_StoneBG)},
-        {12, Sprite(tx_ClosedDoor)},
-        {13, Sprite(tx_OpenedDoor)},
+        {12, Sprite(tx_OrangePortal)},
+        {13, Sprite(tx_BluePortal)},
         {14, Sprite(tx_GreenBricks)},
         {15, Sprite(tx_GreenGrass)},
         {16, Sprite(tx_Lava)},
@@ -518,6 +566,7 @@ int main()
         {19, Sprite(tx_SpikesLeft)},
         {20, Sprite(tx_SpikesRight)},
         {21, Sprite(tx_SpikesTop)},
+        {22, Sprite(tx_Key)},
     };
 
     std::vector<std::tuple<int, int, int>> mobTemplate;
@@ -547,8 +596,8 @@ int main()
     }
 
     RenderWindow window(VideoMode({ 1200, 800 }), "Platformer Game");
-
-    Player player(100.f, 100.f);
+	Texture tx_Player("Sprites/AnimationSheet_Character.png");
+    Player player(tx_Player, 100.f, 100.f);
     Clock clock;
     GameState gameState = MAIN_MENU;
 
@@ -559,6 +608,16 @@ int main()
     const float MENU_SCROLL_SPEED = 50.f;
     std::cout << hasMenuBg << endl;
 	float time = 0.f;
+    bool enteringDoor = false;
+    float enterTimer = 0.f;
+    const float ENTER_DURATION = 0.9f;
+    Vector2f enterViewStartCenter;
+    Vector2f enterViewTargetCenter;
+    Vector2f enterViewStartSize;
+    bool levelCompleted = false;
+    float finalTime = 0.f;
+    int finalCoins = 0;
+    int finalKills = 0;
     while (window.isOpen()) {
         while (const optional event = window.pollEvent())
         {
@@ -574,6 +633,10 @@ int main()
                         player.reset();
                     }
                     else if (gameState == GAME_OVER) {
+                        levelCompleted = false;
+                        finalTime = 0.f;
+                        finalCoins = 0;
+                        finalKills = 0;
                         gameState = MAIN_MENU;
                         player.reset();
                     }
@@ -595,6 +658,11 @@ int main()
                             else if (tile == 9) enemies.emplace_back(x * TileSize, y * TileSize, tx_SlimeMan, TileSize);
                         }
                         if (enemies.empty()) enemies.emplace_back(5.f * TileSize, 8.f * TileSize, tx_Slime, TileSize);
+                        time = 0.f;
+                        levelCompleted = false;
+                        finalTime = 0.f;
+                        finalCoins = 0;
+                        finalKills = 0;
                     }
                     else if (gameState == GAME_OVER) {
                         gameState = PLAYING;
@@ -609,6 +677,10 @@ int main()
                             else if (tile == 9) enemies.emplace_back(x * TileSize, y * TileSize, tx_SlimeMan, TileSize);
                         }
                         if (enemies.empty()) enemies.emplace_back(5.f * TileSize, 8.f * TileSize, tx_Slime, TileSize);
+                        levelCompleted = false;
+                        finalTime = 0.f;
+                        finalCoins = 0;
+                        finalKills = 0;
                     }
                 }
 
@@ -640,10 +712,18 @@ int main()
                         gameState = PLAYING;
                         std::memcpy(InterestingMAP, OriginalInterestingMAP, sizeof(InterestingMAP));
                         player.reset();
+                        enemies.clear();
+                        for (auto& t : mobTemplate) {
+                            int x, y, tile;
+                            std::tie(x, y, tile) = t;
+                            if (tile == 8) enemies.emplace_back(x * TileSize, y * TileSize, tx_Slime, TileSize);
+                            else if (tile == 9) enemies.emplace_back(x * TileSize, y * TileSize, tx_SlimeMan, TileSize);
+                        }
+                        if (enemies.empty()) enemies.emplace_back(5.f * TileSize, 8.f * TileSize, tx_Slime, TileSize);
                     }
                     else if (back.contains(mouse)) gameState = MAIN_MENU;
                 }
-                else if (gameState == CREATORS_MENU || gameState == SETTINGS_MENU) {
+                else if (gameState == CREATORS_MENU) {
                     FloatRect back({ 450.f, 510.f }, { 300.f, 50.f });
                     if (back.contains(mouse)) gameState = MAIN_MENU;
                 }
@@ -663,33 +743,80 @@ int main()
         float dt = clock.restart().asSeconds();
 
         if (gameState == PLAYING) {
-            for (auto& e : enemies) {
-                e.update(dt, player.getPosition(), MAP, MAP_WIDTH, MAP_HEIGHT, TileSize);
+            if (player.getHasKey() && player.getPosition().x > 3600.f && player.getPosition().x < 3651.f)
+                enteringDoor = true;
+            if (!enteringDoor) {
+                for (auto& e : enemies) {
+                    e.update(dt, player.getPosition(), MAP, MAP_WIDTH, MAP_HEIGHT, TileSize);
+                }
+
+                player.update(dt, MAP, MAP_WIDTH, MAP_HEIGHT, TileSize, view1, window, MobMAP, InterestingMAP, BackgroundMAP, enemies);
+
+                sf::Vector2f ppos = player.getPosition();
+                sf::Vector2f pcenter = { ppos.x + 15.f, ppos.y + 20.f };
+                int doorTx = static_cast<int>(pcenter.x / TileSize);
+                int doorTy = static_cast<int>(pcenter.y / TileSize);
+                if (doorTx >= 0 && doorTx < MAP_WIDTH && doorTy >= 0 && doorTy < MAP_HEIGHT) {
+                    if (MAP[doorTy][doorTx] == 13) {
+                        enteringDoor = true;
+                        enterTimer = ENTER_DURATION;
+                        enterViewStartCenter = view1.getCenter();
+                        enterViewTargetCenter = Vector2f((doorTx + 0.5f) * TileSize, (doorTy + 0.5f) * TileSize);
+                        enterViewStartSize = view1.getSize();
+                    }
+                }
+
+                if (!player.isAlive() && player.hasFinishedDeathAnimation()) {
+                    levelCompleted = false;
+                    finalTime = time;
+                    finalCoins = player.getCoins();
+                    finalKills = 0;
+                    for (auto& e : enemies) if (!e.isAlive()) finalKills++;
+					gameState = GAME_OVER;
+                }
+
+                if (!enteringDoor) {
+                    Vector2f playerPos = player.getPosition();
+                    Vector2f viewCenter = view1.getCenter();
+                    viewCenter.x += (playerPos.x - viewCenter.x) * 0.1f;
+                    viewCenter.y += (playerPos.y - viewCenter.y) * 0.1f;
+                    float mapWidthPx = MAP_WIDTH * TileSize;
+                    float mapHeightPx = MAP_HEIGHT * TileSize;
+                    float halfWidth = view1.getSize().x / 2.f;
+                    float halfHeight = view1.getSize().y / 2.f;
+                    if (viewCenter.x < halfWidth) viewCenter.x = halfWidth;
+                    if (viewCenter.y < halfHeight) viewCenter.y = halfHeight;
+                    if (viewCenter.x > mapWidthPx - halfWidth) viewCenter.x = mapWidthPx - halfWidth;
+                    if (viewCenter.y > mapHeightPx - halfHeight) viewCenter.y = mapHeightPx - halfHeight;
+                    view1.setCenter(viewCenter);
+                }
             }
+            else {
+                enterTimer -= dt;
+                float progress = 1.f - std::max(0.f, enterTimer) / ENTER_DURATION;
 
-            player.update(dt, MAP, MAP_WIDTH, MAP_HEIGHT, TileSize, view1, window, MobMAP, InterestingMAP, BackgroundMAP, enemies);
-            if (!player.isAlive()) {
-                gameState = GAME_OVER;
+                auto lerp = [](const Vector2f& a, const Vector2f& b, float t) {
+                    return Vector2f(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t);
+                    };
+                Vector2f newCenter = lerp(enterViewStartCenter, enterViewTargetCenter, progress);
+                Vector2f startSize = enterViewStartSize;
+                Vector2f targetSize = startSize * 0.6f;
+                Vector2f newSize = lerp(startSize, targetSize, progress);
+                view1.setCenter(newCenter);
+                view1.setSize(newSize);
+
+                if (enterTimer <= 0.f) {
+                    enteringDoor = false;
+                    view1.setSize({ 1200.f, 800.f });
+                    view1.setCenter({ 600.f, 400.f });
+                    levelCompleted = true;
+                    finalTime = time;
+                    finalCoins = player.getCoins();
+                    finalKills = 0;
+                    for (auto& e : enemies) if (!e.isAlive()) finalKills++;
+                    gameState = GAME_OVER;
+                }
             }
-
-            Vector2f playerPos = player.getPosition();
-            Vector2f viewCenter = view1.getCenter();
-
-            viewCenter.x += (playerPos.x - viewCenter.x) * 0.1f;
-            viewCenter.y += (playerPos.y - viewCenter.y) * 0.1f;
-
-            float mapWidthPx = MAP_WIDTH * TileSize;
-            float mapHeightPx = MAP_HEIGHT * TileSize;
-
-            float halfWidth = view1.getSize().x / 2.f;
-            float halfHeight = view1.getSize().y / 2.f;
-
-            if (viewCenter.x < halfWidth) viewCenter.x = halfWidth;
-            if (viewCenter.y < halfHeight) viewCenter.y = halfHeight;
-            if (viewCenter.x > mapWidthPx - halfWidth) viewCenter.x = mapWidthPx - halfWidth;
-            if (viewCenter.y > mapHeightPx - halfHeight) viewCenter.y = mapHeightPx - halfHeight;
-
-            view1.setCenter(viewCenter);
         }
 
         window.clear(Color::Cyan);
@@ -746,9 +873,10 @@ int main()
 
             player.draw(window, view1, font);
             DrawHUD(window, font, player, time += clock.getElapsedTime().asSeconds());
-			std::cout << time << std::endl;
+			//std::cout << time << std::endl;
         }
         else if (gameState == GAME_OVER) {
+            player.update(dt, MAP, MAP_WIDTH, MAP_HEIGHT, TileSize, view1, window, MobMAP, InterestingMAP, BackgroundMAP, enemies);
             window.setView(view1);
             drawBg(window, spriteSheet);
             drawMap(window, spriteSheet);
@@ -758,7 +886,12 @@ int main()
             for (auto& e : enemies) e.draw(window);
 
             player.draw(window, view1, font);
-            drawGameOver(window, font);
+            if (levelCompleted) {
+                drawEndInfo(window, font, finalTime, finalCoins, finalKills, true);
+            }
+            else {
+                drawGameOver(window, font);
+			}
         }
 
         window.display();

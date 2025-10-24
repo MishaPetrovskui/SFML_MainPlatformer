@@ -2,7 +2,6 @@
 #include "Enemy.h"
 #include <algorithm>
 
-
 static bool rectsIntersect(const sf::FloatRect& a, const sf::FloatRect& b) {
     return (a.position.x < b.position.x + b.size.x) && (a.position.x + a.size.x > b.position.x) &&
         (a.position.y < b.position.y + b.size.y) && (a.position.y + a.size.y > b.position.y);
@@ -12,11 +11,16 @@ static sf::FloatRect expandRect(const sf::FloatRect& r, float pad) {
     return sf::FloatRect({ r.position.x - pad, r.position.y - pad }, { r.size.x + pad * 2.f, r.size.y + pad * 2.f });
 }
 
-Player::Player(sf::Texture _tx, float startX, float startY): sprite(_tx){
+Player::Player(sf::Texture _tx, float startX, float startY) : texture(_tx), sprite(_tx) {
     shape.setSize({ 30.f, 40.f });
-    shape.setFillColor(sf::Color::Red);
     shape.setPosition({ startX, startY });
     spawnPoint = { startX, startY };
+
+    sprite.setTexture(texture);
+    sprite.setTextureRect(animation["idle"][0]);
+    sprite.setScale({ 2.5f, 2.5f });
+    sprite.setPosition({ startX, startY });
+
     velocity = { 0.f, 0.f };
     speed = 200.f;
     gravity = 900.f;
@@ -46,6 +50,15 @@ Player::Player(sf::Texture _tx, float startX, float startY): sprite(_tx){
     spikeInvulDuration = 0.6f;
     spikeDamage = 10;
     wasOnSpike = false;
+
+    currentAnimation = "idle";
+    animationFrame = 0;
+    animationTimer = 0.f;
+    animationSpeed = 0.1f;
+    facingRight = true;
+
+    hasKey = false;
+    deathAnimationFinished = false;
 }
 
 bool Player::checkWallContact(int map[][501], int mapWidth, int mapHeight, float tileSize) {
@@ -83,8 +96,53 @@ bool Player::checkWallContact(int map[][501], int mapWidth, int mapHeight, float
     return false;
 }
 
+void Player::updateAnimation(float dt) {
+    float currentSpeed = (currentAnimation == "idle") ? 0.5f : animationSpeed;
+
+    animationTimer += dt;
+
+    if (animationTimer >= currentSpeed) {
+        animationTimer = 0.f;
+
+        if (animation.find(currentAnimation) != animation.end()) {
+            animationFrame++;
+            if (animationFrame >= animation[currentAnimation].size()) {
+                if (currentAnimation == "Death") {
+                    animationFrame = animation[currentAnimation].size() - 1;
+                    deathAnimationFinished = true;
+                }
+                else {
+                    animationFrame = 0;
+                }
+            }
+            sprite.setTextureRect(animation[currentAnimation][animationFrame]);
+        }
+    }
+}
+
+void Player::setAnimation(const string& animName) {
+    if (currentAnimation != animName) {
+        currentAnimation = animName;
+        animationFrame = 0;
+        animationTimer = 0.f;
+        if (animName == "Death") {
+            deathAnimationFinished = false;
+        }
+        if (animation.find(animName) != animation.end()) {
+            sprite.setTextureRect(animation[animName][0]);
+        }
+    }
+}
+
 void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float tileSize, sf::View& view1, sf::RenderWindow& window,
     int mobMap[][501], int interestingMap[][501], int backgroundMap[][501], std::vector<Enemy>& enemies) {
+
+    if (hp <= 0) {
+        setAnimation("Death");
+        updateAnimation(dt);
+        sprite.setPosition(shape.getPosition());
+        return;
+    }
 
     if (dashCooldownTimer > 0.f) {
         dashCooldownTimer -= dt;
@@ -144,18 +202,13 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
                 velocity.y = 50.f;
                 stamina -= staminaConsumption * dt;
                 if (stamina < 0.f) stamina = 0.f;
-                shape.setFillColor(sf::Color::Yellow);
             }
             else {
                 isSliding = false;
-                shape.setFillColor(sf::Color::Red);
             }
         }
         else {
             isSliding = false;
-            if (!isDashing) {
-                shape.setFillColor(sf::Color::Red);
-            }
 
             if (onGround && stamina < maxStamina) {
                 stamina += staminaRegenRate * dt;
@@ -173,7 +226,6 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
                     velocity.x = -wallDirection * speed * 1.5f;
                     stamina -= 20.f;
                     isSliding = false;
-                    shape.setFillColor(sf::Color::Red);
                 }
             }
             else if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::S) ||
@@ -181,16 +233,17 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
                 velocity.y = 200.f;
                 velocity.x = -wallDirection * speed * 1.2f;
                 isSliding = false;
-                shape.setFillColor(sf::Color::Red);
             }
         }
 
         if (!isSliding && !isDashing) {
             if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::A) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Left)) {
                 velocity.x = -speed;
+                facingRight = false;
             }
             else if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::D) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Right)) {
                 velocity.x = speed;
+                facingRight = true;
             }
             else {
                 velocity.x = 0.f;
@@ -209,12 +262,10 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
         }
     }
 
-    if (isDashing) {
-        shape.setFillColor(sf::Color::Cyan);
-    }
-
     bool attackPressed = sf::Keyboard::isKeyPressed(attackKey);
     if (attackPressed && attackTimer <= 0.f) {
+        setAnimation("Attack");
+
         sf::FloatRect pBounds = shape.getGlobalBounds();
         const float attackRadius = 60.f;
         sf::FloatRect attackRect = expandRect(pBounds, attackRadius);
@@ -278,17 +329,83 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
 
     shape.setPosition(nextPos);
 
+    if (!onGround) {
+        setAnimation("Jump");
+    }
+    else if (velocity.x != 0.f) {
+        if (facingRight) {
+            setAnimation("walkToRight");
+        }
+        else {
+            setAnimation("walkToLeft");
+        }
+    }
+    else {
+        if (attackTimer > 0.f) {
+            if (currentAnimation != "Attack") setAnimation("Attack");
+        }
+        else if (sf::Keyboard::isKeyPressed(attackKey) && attackTimer <= 0.f) {
+            if (currentAnimation != "Attack") setAnimation("Attack");
+        }
+        else {
+            setAnimation("idle");
+        }
+    }
+
+    updateAnimation(dt);
+
+    if (facingRight) {
+        sprite.setScale({ 2.5f, 2.5f });
+    }
+    else {
+        sprite.setScale({ -2.5f, 2.5f });
+    }
+    sf::Vector2f spritePos = shape.getPosition();
+
+    sf::IntRect texRect = sprite.getTextureRect();
+    float spriteHeight = texRect.size.y * 2.5f;
+    float spriteWidth = texRect.size.x * 2.5f;
+
+    spritePos.y += shape.getSize().y - spriteHeight;
+
+    spritePos.x += (shape.getSize().x - spriteWidth) / 2.f;
+
+    if (!facingRight) {
+        spritePos.x += spriteWidth;
+    }
+
+    sprite.setPosition(spritePos);
+
     sf::FloatRect playerBounds = shape.getGlobalBounds();
     const float collectPadding = 8.f;
     sf::FloatRect collectRect = expandRect(playerBounds, collectPadding);
+
     for (int y = 0; y < mapHeight; ++y) {
         for (int x = 0; x < mapWidth; ++x) {
             int tile = interestingMap[y][x];
+            sf::FloatRect tileRect({ static_cast<float>(x) * tileSize, static_cast<float>(y) * tileSize }, { tileSize, tileSize });
+
             if (tile == 7) {
-                sf::FloatRect tileRect({ static_cast<float>(x) * tileSize, static_cast<float>(y) * tileSize }, { tileSize, tileSize });
                 if (rectsIntersect(collectRect, tileRect)) {
                     coins += 1;
                     interestingMap[y][x] = -1;
+                }
+            }
+
+            if (tile == 22) {
+                if (rectsIntersect(collectRect, tileRect)) {
+                    hasKey = true;
+                    interestingMap[y][x] = -1;
+                    std::cout << "Key collected!" << std::endl;
+                }
+            }
+        }
+    }
+    if (hasKey) {
+        for (int y = 0; y < mapHeight; ++y) {
+            for (int x = 0; x < mapWidth; ++x) {
+                if (map[y][x] == 12) {
+                    map[y][x] = 13;
                 }
             }
         }
@@ -368,50 +485,7 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
 }
 
 void Player::draw(sf::RenderWindow& window, sf::View& view1, sf::Font& font) {
-    window.draw(shape);
-
-    /*sf::RectangleShape staminaBg;
-    staminaBg.setSize({ maxStamina * 0.2f, 5.f });
-    staminaBg.setFillColor(sf::Color(50, 50, 50));
-    staminaBg.setPosition({ shape.getPosition().x, shape.getPosition().y - 10.f });
-    window.draw(staminaBg);
-
-    sf::RectangleShape staminaBar;
-    staminaBar.setSize({ stamina * 0.2f, 5.f });
-    staminaBar.setFillColor(sf::Color::Green);
-    staminaBar.setPosition({ shape.getPosition().x, shape.getPosition().y - 10.f });
-    window.draw(staminaBar);
-
-    float hpBarW = 60.f;
-    sf::RectangleShape hpBg;
-    hpBg.setSize({ hpBarW, 8.f });
-    hpBg.setFillColor(sf::Color(50, 50, 50));
-    hpBg.setPosition({ shape.getPosition().x, shape.getPosition().y - 20.f });
-    window.draw(hpBg);
-
-    sf::RectangleShape hpBar;
-    float hpPerc = (float)hp / (float)maxHp;
-    hpBar.setSize({ hpBarW * std::max(0.f, hpPerc), 8.f });
-    hpBar.setFillColor(sf::Color::Red);
-    hpBar.setPosition({ shape.getPosition().x, shape.getPosition().y - 20.f });
-    window.draw(hpBar);
-
-    sf::Text coinText(font);
-    coinText.setFont(font);
-    coinText.setCharacterSize(16);
-    coinText.setFillColor(sf::Color::Yellow);
-    coinText.setString("Coins: " + std::to_string(coins));
-    coinText.setPosition({ shape.getPosition().x, shape.getPosition().y - 40.f });
-    window.draw(coinText);
-
-    sf::Text hpText(font);
-    hpText.setFont(font);
-    hpText.setCharacterSize(14);
-    hpText.setFillColor(sf::Color::White);
-    hpText.setString("HP: " + std::to_string(hp));
-    hpText.setPosition({ shape.getPosition().x + hpBarW + 5.f, shape.getPosition().y - 22.f });
-    window.draw(hpText);*/
-
+    window.draw(sprite);
     window.setView(view1);
 }
 
@@ -423,9 +497,17 @@ void Player::reset() {
     coins = 0;
     isDashing = false;
     dashCooldownTimer = 0.f;
-    shape.setFillColor(sf::Color::Red);
     attackTimer = 0.f;
     lavaDamageAccum = 0.f;
     spikeInvulTimer = 0.f;
     wasOnSpike = false;
+    currentAnimation = "idle";
+    animationFrame = 0;
+    animationTimer = 0.f;
+    facingRight = true;
+    hasKey = false;
+    deathAnimationFinished = false;
+    sprite.setPosition(spawnPoint);
+    sprite.setTextureRect(animation["idle"][0]);
+    sprite.setScale({ 2.5f, 2.5f });
 }

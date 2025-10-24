@@ -8,10 +8,8 @@ static bool rectsIntersect(const sf::FloatRect& a, const sf::FloatRect& b) {
 
 static bool isSolidTile(int tile) {
     if (tile == -1) return false;
-    // treat sky (5) and coins (7) and hazards (16..21) as non-solid for standing
     if (tile == 5 || tile == 7) return false;
     if (tile >= 16 && tile <= 21) return false;
-    // otherwise consider solid
     return true;
 }
 
@@ -31,7 +29,7 @@ Enemy::Enemy(float x, float y, sf::Texture& texture, float tileSize)
     contactTimer = 0.f;
     contactDamage = 10;
 
-    gravity = 900.f; // similar to player gravity
+    gravity = 900.f; 
     velocityY = 0.f;
 }
 
@@ -42,25 +40,18 @@ void Enemy::update(float dt, const sf::Vector2f& playerPos, int map[][501], int 
 
     sf::Vector2f pos = sprite.getPosition();
 
-    // --- vertical physics with tile collision detection ---
     velocityY += gravity * dt;
     float spriteH = sprite.getGlobalBounds().size.y;
     float tentativeY = pos.y + velocityY * dt;
-
-    // compute horizontal tile range under the enemy
     int leftTile = std::max(0, (int)std::floor(pos.x / tileSize));
     int rightTile = std::min(mapWidth - 1, (int)std::floor((pos.x + sprite.getGlobalBounds().size.x - 1.f) / tileSize));
-
-    // compute tile row the feet would be in after move
     int footTile = (int)std::floor((tentativeY + spriteH) / tileSize);
 
     bool landed = false;
     if (footTile >= 0 && footTile < mapHeight) {
         for (int tx = leftTile; tx <= rightTile; ++tx) {
             if (isSolidTile(map[footTile][tx])) {
-                // top of the tile
                 float tileTop = footTile * tileSize;
-                // if we would intersect or go below the tile top => land
                 if (tentativeY + spriteH >= tileTop) {
                     pos.y = tileTop - spriteH;
                     velocityY = 0.f;
@@ -72,13 +63,11 @@ void Enemy::update(float dt, const sf::Vector2f& playerPos, int map[][501], int 
     }
 
     if (!landed) {
-        // not supported by tile -> apply tentative Y
         pos.y = tentativeY;
     }
 
-    // If enemy fell far below map (fell into abyss) -> respawn at spawnPos and restore HP
     float mapBottomPx = mapHeight * tileSize;
-    const float FALL_RESPAWN_THRESHOLD = 200.f; // below map bottom or far under spawn
+    const float FALL_RESPAWN_THRESHOLD = 200.f;
     if (pos.y > mapBottomPx + FALL_RESPAWN_THRESHOLD || pos.y > spawnPos.y + FALL_RESPAWN_THRESHOLD) {
         pos = spawnPos;
         velocityY = 0.f;
@@ -89,7 +78,6 @@ void Enemy::update(float dt, const sf::Vector2f& playerPos, int map[][501], int 
         return;
     }
 
-    // horizontal AI (unchanged)
     float dx = playerPos.x - pos.x;
     float dy = playerPos.y - pos.y;
 

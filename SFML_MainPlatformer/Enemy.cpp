@@ -2,7 +2,6 @@
 #include <cmath>
 
 static bool rectsIntersect(const sf::FloatRect& a, const sf::FloatRect& b) {
-    // совместимо с текущей структурой sf::FloatRect (position/size)
     return (a.position.x < b.position.x + b.size.x) && (a.position.x + a.size.x > b.position.x) &&
         (a.position.y < b.position.y + b.size.y) && (a.position.y + a.size.y > b.position.y);
 }
@@ -12,12 +11,11 @@ Enemy::Enemy(float x, float y, sf::Texture& texture, float tileSize)
 {
     sprite.setPosition({ x, y });
     spawnPos = { x, y };
-    // чуть больше радиус обнаружения
-    detectionRange = tileSize * 8.f; // было 6, увеличено до 8
+    detectionRange = tileSize * 8.f;
     verticalDetectRange = tileSize * 3.f;
     patrolRange = tileSize * 3.f;
     speed = 80.f + (std::rand() % 40);
-    maxHp = 80; // чуть больше хп
+    maxHp = 80; 
     hp = maxHp;
     state = EnemyState::Idle;
     contactCooldown = 0.8f;

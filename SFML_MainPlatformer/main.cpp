@@ -14,7 +14,7 @@ using namespace std;
 
 const static int MAP_WIDTH = 500;
 const static int MAP_HEIGHT = 20;
-
+std::string FormatTime(float seconds);
 int BackgroundMAP[MAP_HEIGHT][MAP_WIDTH + 1] = {};
 int MAP[MAP_HEIGHT][MAP_WIDTH + 1] = {};
 int MobMAP[MAP_HEIGHT][MAP_WIDTH + 1] = {};
@@ -25,12 +25,14 @@ float TileSize = 40.f;
 View view1(FloatRect({ 0, 0 }, { 1200, 800 }));
 
 enum GameState {
-    MENU,
+    MAIN_MENU,
+    LEVELS_MENU,
+    CREATORS_MENU,
+    SETTINGS_MENU,
     PLAYING,
     GAME_OVER
 };
 
-// Функция для диагностики карты
 void analyzeMaps() {
     std::set<int> bgTiles, mainTiles, mobTiles, interestTiles;
 
@@ -64,7 +66,6 @@ void analyzeMaps() {
     for (int t : interestTiles) cout << t << " ";
     cout << endl;
 
-    // Ищем лаву (16, 17) и шипы (18-21) ВО ВСЕХ СЛОЯХ
     cout << "\n=== HAZARD DETECTION ===" << endl;
     int lavaCount = 0, spikeCount = 0;
 
@@ -75,7 +76,6 @@ void analyzeMaps() {
             int t3 = MobMAP[y][x];
             int t4 = InterestingMAP[y][x];
 
-            // Проверяем лаву во всех слоях
             if (t1 == 16 || t1 == 17 || t2 == 16 || t2 == 17 ||
                 t3 == 16 || t3 == 17 || t4 == 16 || t4 == 17) {
                 lavaCount++;
@@ -91,11 +91,10 @@ void analyzeMaps() {
                 }
             }
 
-            // Проверяем шипы во всех слоях
             if ((t1 >= 18 && t1 <= 21) || (t2 >= 18 && t2 <= 21) ||
                 (t3 >= 18 && t3 <= 21) || (t4 >= 18 && t4 <= 21)) {
                 spikeCount++;
-                if (spikeCount <= 9) { // показываем все 9
+                if (spikeCount <= 9) {
                     int tile = (t1 >= 18 && t1 <= 21) ? t1 :
                         (t2 >= 18 && t2 <= 21) ? t2 :
                         (t3 >= 18 && t3 <= 21) ? t3 : t4;
@@ -229,83 +228,191 @@ void drawInteresting(RenderWindow& window, map<int, Sprite>& spriteSheet)
     }
 }
 
-void drawMenu(RenderWindow& window, Font& font, Keyboard::Key attackKey, bool waitingForRemap)
-{
-    View menuView = window.getDefaultView();
-    window.setView(menuView);
+void DrawMenuButton(RenderWindow& window, const FloatRect& rect, const string& text, const Font& font, bool isSelected = false) {
+    RectangleShape bg({ rect.size.x, rect.size.y });
+    bg.setPosition({ rect.position.x, rect.position.y });
+    bg.setFillColor(isSelected ? Color(60, 60, 80) : Color(40, 40, 60));
+    bg.setOutlineColor(Color::White);
+    bg.setOutlineThickness(2.f);
+    window.draw(bg);
 
-    RectangleShape background({ 1200.f, 800.f });
-    background.setFillColor(Color(20, 20, 40));
-    window.draw(background);
+    Text txt(font, text, 20);
+    txt.setFillColor(Color::White);
+    FloatRect bounds = txt.getLocalBounds();
+    txt.setPosition({
+        rect.position.x + (rect.size.x - bounds.size.x) / 2.f,
+        rect.position.y + (rect.size.y - bounds.size.y) / 2.f
+    });
+    window.draw(txt);
+}
 
-    Text title(font, "PLATFORMER GAME", 60);
+void DrawMainMenu(RenderWindow& window, Font& font, Vector2i mousePos) {
+    window.setView(window.getDefaultView());
+
+    Text title(font, "PLATFORMER", 64);
     title.setFillColor(Color::White);
-    title.setOutlineColor(Color(100, 150, 255));
-    title.setOutlineThickness(3.f);
-    title.setPosition({ 75.f, 100.f });
+    title.setStyle(Text::Bold);
+    FloatRect titleBounds = title.getLocalBounds();
+    title.setPosition({(1200.f - titleBounds.size.x) / 2.f, 120.f});
     window.draw(title);
 
-    Text authorsTitle(font, "Created by:", 27);
-    authorsTitle.setFillColor(Color(200, 200, 200));
-    authorsTitle.setPosition({ 450.f, 250.f });
-    window.draw(authorsTitle);
+    vector<pair<string, FloatRect>> buttons = {
+        {"LEVELS", FloatRect({450.f, 300.f}, {300.f, 50.f})},
+        {"CREATORS", FloatRect({450.f, 370.f}, {300.f, 50.f})},
+        {"SETTINGS", FloatRect({450.f, 440.f}, {300.f, 50.f})},
+        {"EXIT", FloatRect({450.f, 510.f}, {300.f, 50.f})}
+    };
 
-    Text author1(font, "Petrovsky Mikhail (Dram)", 23);
-    author1.setFillColor(Color(150, 200, 255));
-    author1.setPosition({ 380.f, 310.f });
-    window.draw(author1);
+    for (const auto& [text, rect] : buttons) {
+        bool isHovered = rect.contains(Vector2f(mousePos));
+        DrawMenuButton(window, rect, text, font, isHovered);
+    }
+}
 
-    Text author2(font, "Yashchenko Denis (HoWL)", 23);
-    author2.setFillColor(Color(150, 200, 255));
-    author2.setPosition({ 380.f, 350.f });
-    window.draw(author2);
+void DrawLevelsMenu(RenderWindow& window, Font& font, Vector2i mousePos) {
+    window.setView(window.getDefaultView());
 
-    RectangleShape buttonBg({ 300.f, 60.f });
-    buttonBg.setPosition({ 450.f, 480.f });
-    buttonBg.setFillColor(Color(50, 100, 200));
-    buttonBg.setOutlineColor(Color::White);
-    buttonBg.setOutlineThickness(3.f);
-    window.draw(buttonBg);
+    Text title(font, "LEVELS", 48);
+    title.setFillColor(Color::White);
+    FloatRect titleBounds = title.getLocalBounds();
+    title.setPosition({ (1200.f - titleBounds.size.x) / 2.f, 120.f });
+    window.draw(title);
 
-    Text startText(font, "PRESS ENTER TO START", 18);
-    startText.setFillColor(Color::White);
-    startText.setPosition({ 480.f, 495.f });
-    window.draw(startText);
+    FloatRect levelRect({ 450.f, 300.f }, { 300.f, 50.f });
+    DrawMenuButton(window, levelRect, "LEVEL 1", font, levelRect.contains(Vector2f(mousePos)));
 
-    RectangleShape remapBg({ 300.f, 60.f });
-    remapBg.setPosition({ 450.f, 560.f });
-    remapBg.setFillColor(Color(80, 80, 120));
-    remapBg.setOutlineColor(Color::White);
-    remapBg.setOutlineThickness(3.f);
-    window.draw(remapBg);
+    FloatRect backRect({ 450.f, 510.f }, { 300.f, 50.f });
+    DrawMenuButton(window, backRect, "BACK", font, backRect.contains(Vector2f(mousePos)));
+}
 
-    string attackName = keyToString(attackKey);
-    Text remapText(font, ("Attack: " + attackName + "  (Click to remap)"), 18);
-    remapText.setFillColor(Color::White);
-    remapText.setPosition({ 460.f, 575.f });
-    window.draw(remapText);
+void DrawCreatorsMenu(RenderWindow& window, Font& font, Vector2i mousePos) {
+    window.setView(window.getDefaultView());
 
-    Text controls(font, "Controls:\nWASD/Arrows - Move\nSpace - Jump\nShift - Dash\nJ - Attack (default)", 15);
-    controls.setFillColor(Color(180, 180, 180));
-    controls.setPosition({ 480.f, 650.f });
-    window.draw(controls);
+    Text title(font, "CREATORS", 48);
+    title.setFillColor(Color::White);
+    FloatRect titleBounds = title.getLocalBounds();
+    title.setPosition({ (1200.f - titleBounds.size.x) / 2.f, 120.f });
+    window.draw(title);
+
+    vector<string> creators = {
+        "Petrovskiy Mikhailo (Dram)",
+        "Yashenko Denis (HoWL)"
+    };
+
+    float y = 300.f;
+    for (const auto& creator : creators) {
+        Text txt(font, creator, 24);
+        txt.setFillColor(Color::White);
+        FloatRect bounds = txt.getLocalBounds();
+        txt.setPosition({ (1200.f - bounds.size.x) / 2.f, y });
+        window.draw(txt);
+        y += 50.f;
+    }
+
+    FloatRect backRect({ 450.f, 510.f }, { 300.f, 50.f });
+    DrawMenuButton(window, backRect, "BACK", font, backRect.contains(Vector2f(mousePos)));
+}
+
+void DrawSettingsMenu(RenderWindow& window, Font& font, Vector2i mousePos, Keyboard::Key attackKey, bool waitingForRemap) {
+    window.setView(window.getDefaultView());
+
+    Text title(font, "SETTINGS", 48);
+    title.setFillColor(Color::White);
+    FloatRect titleBounds = title.getLocalBounds();
+    title.setPosition({ (1200.f - titleBounds.size.x) / 2.f, 120.f });
+    window.draw(title);
+
+    string keyText = "KEY OF ATTACK: " + keyToString(attackKey);
+    FloatRect remapRect({ 450.f, 300.f }, { 300.f, 50.f });
+    DrawMenuButton(window, remapRect, keyText, font, remapRect.contains(Vector2f(mousePos)));
+
+    FloatRect backRect({ 450.f, 510.f }, { 300.f, 50.f });
+    DrawMenuButton(window, backRect, "BACK", font, backRect.contains(Vector2f(mousePos)));
 
     if (waitingForRemap) {
-        RectangleShape overlay({ 400.f, 120.f });
+        RectangleShape overlay({ 600.f, 200.f });
+        overlay.setPosition({ 300.f, 300.f });
         overlay.setFillColor(Color(0, 0, 0, 200));
-        overlay.setPosition({ 400.f, 300.f });
         window.draw(overlay);
 
-        Text prompt(font, "Press any key to set attack", 24);
+        Text prompt(font, "ENTER ANY KEY...", 24);
         prompt.setFillColor(Color::White);
-        prompt.setPosition({ 430.f, 340.f });
+        FloatRect bounds = prompt.getLocalBounds();
+        prompt.setPosition({
+            300.f + (600.f - bounds.size.x) / 2.f,
+            300.f + (200.f - bounds.size.y) / 2.f
+        });
         window.draw(prompt);
-
-        Text hint(font, ("Current: " + attackName), 18);
-        hint.setFillColor(Color::Yellow);
-        hint.setPosition({ 430.f, 380.f });
-        window.draw(hint);
     }
+}
+
+void DrawHUD(RenderWindow& window, Font& font, const Player& player, float gameTime) {
+    View gameView = window.getView();
+    window.setView(window.getDefaultView());
+
+    RectangleShape hudBg({ 1160.f, 80.f });
+    hudBg.setPosition({ 20.f, 20.f });
+    hudBg.setFillColor(Color(0, 0, 0, 180));
+    window.draw(hudBg);
+
+    const float barWidth = 300.f;
+    const float barHeight = 20.f;
+    const float leftX = 40.f;
+
+    RectangleShape hpBg({ barWidth, barHeight });
+    hpBg.setPosition({ leftX, 30.f });
+    hpBg.setFillColor(Color(60, 0, 0, 180));
+    window.draw(hpBg);
+
+    float hpRatio = static_cast<float>(player.getHP()) / 100.f;
+    RectangleShape hpBar({ barWidth * hpRatio, barHeight });
+    hpBar.setPosition({ leftX, 30.f });
+    hpBar.setFillColor(Color::Red);
+    window.draw(hpBar);
+
+    Text hpText(font, "HP: " + to_string(player.getHP()), 18);
+    hpText.setPosition({ leftX - 35.f, 30.f });
+    hpText.setFillColor(Color::White);
+    window.draw(hpText);
+
+    RectangleShape staBg({ barWidth, barHeight });
+    staBg.setPosition({ leftX, 60.f });
+    staBg.setFillColor(Color(0, 60, 0, 180));
+    window.draw(staBg);
+
+    float staRatio = player.getStamina() / player.getMaxStamina();
+    RectangleShape staBar({ barWidth * staRatio, barHeight });
+    staBar.setPosition({ leftX, 60.f });
+    staBar.setFillColor(Color::Green);
+    window.draw(staBar);
+
+    string timeStr = FormatTime(gameTime);
+    Text timeText(font, timeStr, 32);
+    FloatRect timeBounds = timeText.getLocalBounds();
+    timeText.setPosition({
+        (1200.f - timeBounds.size.x) / 2.f,
+        45.f
+    });
+    timeText.setFillColor(Color::White);
+    window.draw(timeText);
+
+    Text coinsText(font, "Coins: " + to_string(player.getCoins()), 24);
+    FloatRect coinBounds = coinsText.getLocalBounds();
+    coinsText.setPosition({ 1140.f - coinBounds.size.x, 45.f });
+    coinsText.setFillColor(Color::Yellow);
+    window.draw(coinsText);
+
+    window.setView(gameView);
+}
+
+string FormatTime(float seconds) {
+    int totalSecs = static_cast<int>(seconds);
+    int mins = totalSecs / 60;
+    int secs = totalSecs % 60;
+    stringstream ss;
+    ss << setfill('0') << setw(2) << mins << ":"
+        << setfill('0') << setw(2) << secs;
+    return ss.str();
 }
 
 void drawGameOver(RenderWindow& window, Font& font) {
@@ -348,7 +455,6 @@ int main()
     fread(&InterestingMAP, sizeof(InterestingMAP), 1, file);
     fclose(file);
 
-    // ДИАГНОСТИКА КАРТЫ
     analyzeMaps();
 
     static int OriginalInterestingMAP[MAP_HEIGHT][MAP_WIDTH + 1] = {};
@@ -446,10 +552,15 @@ int main()
 
     Player player(100.f, 100.f);
     Clock clock;
-    GameState gameState = MENU;
+    GameState gameState = MAIN_MENU;
 
     bool waitingForRemap = false;
-
+    Texture menuBgTexture;
+    bool hasMenuBg = menuBgTexture.loadFromFile("Sprites/MENU1.png");
+    float menuBgOffset = 0.f;
+    const float MENU_SCROLL_SPEED = 50.f;
+    std::cout << hasMenuBg << endl;
+	float time = 0.f;
     while (window.isOpen()) {
         while (const optional event = window.pollEvent())
         {
@@ -461,11 +572,11 @@ int main()
 
                 if (keyEvent->code == Keyboard::Key::Escape) {
                     if (gameState == PLAYING) {
-                        gameState = MENU;
+                        gameState = MAIN_MENU;
                         player.reset();
                     }
                     else if (gameState == GAME_OVER) {
-                        gameState = MENU;
+                        gameState = MAIN_MENU;
                         player.reset();
                     }
                     else {
@@ -474,7 +585,7 @@ int main()
                 }
 
                 if (keyEvent->code == Keyboard::Key::Enter) {
-                    if (gameState == MENU) {
+                    if (gameState == MAIN_MENU) {
                         gameState = PLAYING;
                         std::memcpy(InterestingMAP, OriginalInterestingMAP, sizeof(InterestingMAP));
                         player.reset();
@@ -491,6 +602,7 @@ int main()
                         gameState = PLAYING;
                         std::memcpy(InterestingMAP, OriginalInterestingMAP, sizeof(InterestingMAP));
                         player.reset();
+						time = 0.f;
                         enemies.clear();
                         for (auto& t : mobTemplate) {
                             int x, y, tile;
@@ -509,28 +621,42 @@ int main()
             }
 
             if (event->is<Event::MouseButtonPressed>()) {
-                if (gameState == MENU) {
-                    auto mp = event->getIf<Event::MouseButtonPressed>()->position;
-                    Vector2f worldPos = window.mapPixelToCoords(mp, window.getDefaultView());
-                    FloatRect playRect({ 450.f, 480.f }, { 300.f, 60.f });
-                    FloatRect remapRect({ 450.f, 560.f }, { 300.f, 60.f });
+                auto mp = event->getIf<Event::MouseButtonPressed>()->position;
+                Vector2f mouse = Vector2f(window.mapPixelToCoords(mp, window.getDefaultView()));
 
-                    if (playRect.contains(worldPos)) {
+                if (gameState == MAIN_MENU) {
+                    FloatRect levels({ 450.f, 300.f }, { 300.f, 50.f });
+                    FloatRect creators({ 450.f, 370.f }, { 300.f, 50.f });
+                    FloatRect settings({ 450.f, 440.f }, { 300.f, 50.f });
+                    FloatRect exitBtn({ 450.f, 510.f }, { 300.f, 50.f });
+
+                    if (levels.contains(mouse)) gameState = LEVELS_MENU;
+                    else if (creators.contains(mouse)) gameState = CREATORS_MENU;
+                    else if (settings.contains(mouse)) gameState = SETTINGS_MENU;
+                    else if (exitBtn.contains(mouse)) window.close();
+                }
+                else if (gameState == LEVELS_MENU) {
+                    FloatRect level1({ 450.f, 300.f }, { 300.f, 50.f });
+                    FloatRect back({ 450.f, 510.f }, { 300.f, 50.f });
+                    if (level1.contains(mouse)) {
                         gameState = PLAYING;
                         std::memcpy(InterestingMAP, OriginalInterestingMAP, sizeof(InterestingMAP));
                         player.reset();
-                        enemies.clear();
-                        for (auto& t : mobTemplate) {
-                            int x, y, tile;
-                            std::tie(x, y, tile) = t;
-                            if (tile == 8) enemies.emplace_back(x * TileSize, y * TileSize, tx_Slime, TileSize);
-                            else if (tile == 9) enemies.emplace_back(x * TileSize, y * TileSize, tx_SlimeMan, TileSize);
-                        }
-                        if (enemies.empty()) enemies.emplace_back(5.f * TileSize, 8.f * TileSize, tx_Slime, TileSize);
                     }
-                    else if (remapRect.contains(worldPos)) {
+                    else if (back.contains(mouse)) gameState = MAIN_MENU;
+                }
+                else if (gameState == CREATORS_MENU || gameState == SETTINGS_MENU) {
+                    FloatRect back({ 450.f, 510.f }, { 300.f, 50.f });
+                    if (back.contains(mouse)) gameState = MAIN_MENU;
+                }
+                else if (gameState == SETTINGS_MENU) {
+                    FloatRect remap({ 450.f, 300.f }, { 300.f, 50.f });
+                    FloatRect back({ 450.f, 510.f }, { 300.f, 50.f });
+                    if (remap.contains(mouse)) {
                         waitingForRemap = true;
-                        std::cout << "Press a key to remap attack..." << std::endl;
+                    }
+                    else if (back.contains(mouse)) {
+                        gameState = MAIN_MENU;
                     }
                 }
             }
@@ -570,8 +696,46 @@ int main()
 
         window.clear(Color::Cyan);
 
-        if (gameState == MENU) {
-            drawMenu(window, font, player.getAttackKey(), waitingForRemap);
+        if (hasMenuBg) {
+            Sprite menuBg(menuBgTexture);
+            Vector2u texSize = menuBgTexture.getSize();
+            Vector2u winSize = window.getSize();
+
+            menuBgTexture.setRepeated(true);
+
+            menuBgOffset += MENU_SCROLL_SPEED * dt;
+            if (menuBgOffset > texSize.x)
+                menuBgOffset -= texSize.x;
+
+            menuBg.setTextureRect(IntRect({ static_cast<int>(menuBgOffset), 0 }, {
+                static_cast<int>(winSize.x),
+                static_cast<int>(winSize.y) }));
+            menuBg.setPosition({ 0.f, 0.f });
+            window.draw(menuBg);
+
+            menuBg.setTextureRect(IntRect({ 0, 0 }, {
+                static_cast<int>(winSize.x),
+                static_cast<int>(winSize.y) }));
+            menuBg.setPosition({ static_cast<float>(winSize.x) - menuBgOffset, 0.f });
+            window.draw(menuBg);
+        }
+        else {
+            window.clear(Color(20, 20, 40));
+        }
+
+        Vector2i mousePos = Mouse::getPosition(window);
+        if (gameState == MAIN_MENU) {
+            //drawMenu(window, font, player.getAttackKey(), waitingForRemap);
+            DrawMainMenu(window, font, mousePos);
+        }
+        else if (gameState == LEVELS_MENU) {
+            DrawLevelsMenu(window, font, mousePos);
+        }
+        else if (gameState == CREATORS_MENU) {
+            DrawCreatorsMenu(window, font, mousePos);
+        }
+        else if (gameState == SETTINGS_MENU) {
+            DrawSettingsMenu(window, font, mousePos, player.getAttackKey(), waitingForRemap);
         }
         else if (gameState == PLAYING) {
             window.setView(view1);
@@ -583,6 +747,8 @@ int main()
             for (auto& e : enemies) e.draw(window);
 
             player.draw(window, view1, font);
+            DrawHUD(window, font, player, time += clock.getElapsedTime().asSeconds());
+			std::cout << time << std::endl;
         }
         else if (gameState == GAME_OVER) {
             window.setView(view1);

@@ -28,24 +28,17 @@ private:
     float dashCooldown;
     float dashCooldownTimer;
     sf::Vector2f dashDirection;
-
     int hp;
     int maxHp;
     int coins;
-
     float attackCooldown;
     float attackTimer;
     int attackDamage;
-
     float lavaDamageAccum;
-
-    // Ўипы
     float spikeInvulTimer;
     float spikeInvulDuration;
     int spikeDamage;
-    bool wasOnSpike; // новый флаг Ч чтобы наносить урон один раз при входе на шип
-
-    // ѕереназначаема€ клавиша атаки
+    bool wasOnSpike;
     sf::Keyboard::Key attackKey;
 
     bool checkWallContact(int map[][501], int mapWidth, int mapHeight, float tileSize);
@@ -58,11 +51,11 @@ public:
     sf::Vector2f getPosition() { return shape.getPosition(); }
     void reset();
     bool isAlive() { return hp > 0; }
-
     void applyDamage(int dmg) { hp -= dmg; if (hp < 0) hp = 0; }
     int getHP() const { return hp; }
     int getCoins() const { return coins; }
-
+    float getStamina() const { return stamina; }
+    float getMaxStamina() const { return maxStamina; }
     void setAttackKey(sf::Keyboard::Key k) { attackKey = k; }
     sf::Keyboard::Key getAttackKey() const { return attackKey; }
 };

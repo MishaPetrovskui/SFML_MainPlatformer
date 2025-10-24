@@ -16,19 +16,16 @@ Player::Player(float startX, float startY) {
     shape.setFillColor(sf::Color::Red);
     shape.setPosition({ startX, startY });
     spawnPoint = { startX, startY };
-
     velocity = { 0.f, 0.f };
     speed = 200.f;
     gravity = 900.f;
     onGround = false;
     isSliding = false;
     wallDirection = 0;
-
     maxStamina = 1000.f;
     stamina = maxStamina;
     staminaConsumption = 30.f;
     staminaRegenRate = 20.f;
-
     isDashing = false;
     dashSpeed = 600.f;
     dashDuration = 0.2f;
@@ -36,18 +33,14 @@ Player::Player(float startX, float startY) {
     dashCooldown = 0.5f;
     dashCooldownTimer = 0.f;
     dashDirection = { 0.f, 0.f };
-
     maxHp = 100;
     hp = maxHp;
     coins = 0;
-
     attackCooldown = 0.4f;
     attackTimer = 0.f;
     attackDamage = 30;
-    attackKey = sf::Keyboard::Key::J; // default
-
+    attackKey = sf::Keyboard::Key::J;
     lavaDamageAccum = 0.f;
-
     spikeInvulTimer = 0.f;
     spikeInvulDuration = 0.6f;
     spikeDamage = 10;
@@ -98,7 +91,6 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
 
     if (attackTimer > 0.f) attackTimer -= dt;
 
-    // spike invul timer
     if (spikeInvulTimer > 0.f) spikeInvulTimer -= dt;
 
     if (isDashing) {
@@ -220,7 +212,6 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
         shape.setFillColor(sf::Color::Cyan);
     }
 
-    // Attack input
     bool attackPressed = sf::Keyboard::isKeyPressed(attackKey);
     if (attackPressed && attackTimer <= 0.f) {
         sf::FloatRect pBounds = shape.getGlobalBounds();
@@ -286,7 +277,6 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
 
     shape.setPosition(nextPos);
 
-    // Coins collection
     sf::FloatRect playerBounds = shape.getGlobalBounds();
     const float collectPadding = 8.f;
     sf::FloatRect collectRect = expandRect(playerBounds, collectPadding);
@@ -303,18 +293,15 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
         }
     }
 
-    // Lava & spikes detection - ИСПРАВЛЕНО: проверяем InterestingMAP!
     const float lavaDPS = 25.f;
     bool onLava = false;
     bool onSpike = false;
 
-    // Получаем границы игрока для проверки
     float pLeft = playerBounds.position.x;
     float pRight = playerBounds.position.x + playerBounds.size.x;
     float pTop = playerBounds.position.y;
     float pBottom = playerBounds.position.y + playerBounds.size.y;
 
-    // Вычисляем диапазон тайлов для проверки (оптимизация)
     int startX = std::max(0, (int)(pLeft / tileSize) - 1);
     int endX = std::min(mapWidth, (int)(pRight / tileSize) + 2);
     int startY = std::max(0, (int)(pTop / tileSize) - 1);
@@ -324,18 +311,16 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
         for (int x = startX; x < endX; ++x) {
             int t1 = map[y][x];
             int t2 = backgroundMap[y][x];
-            int t3 = interestingMap[y][x]; // ДОБАВЛЕНО!
+            int t3 = interestingMap[y][x];
 
             sf::FloatRect tileRect({ static_cast<float>(x) * tileSize, static_cast<float>(y) * tileSize }, { tileSize, tileSize });
 
-            // Проверка лавы (tiles 16, 17) во ВСЕХ слоях
             if (t1 == 16 || t1 == 17 || t2 == 16 || t2 == 17 || t3 == 16 || t3 == 17) {
                 if (rectsIntersect(playerBounds, tileRect)) {
                     onLava = true;
                 }
             }
 
-            // Проверка шипов (tiles 18-21) во ВСЕХ слоях
             if ((t1 >= 18 && t1 <= 21) || (t2 >= 18 && t2 <= 21) || (t3 >= 18 && t3 <= 21)) {
                 if (rectsIntersect(playerBounds, tileRect)) {
                     onSpike = true;
@@ -344,7 +329,6 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
         }
     }
 
-    // Применяем урон от лавы
     if (onLava) {
         lavaDamageAccum += lavaDPS * dt;
         int dmg = static_cast<int>(lavaDamageAccum);
@@ -357,7 +341,6 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
         lavaDamageAccum = 0.f;
     }
 
-    // Применяем урон от шипов с таймером неуязвимости
     if (onSpike) {
         if (spikeInvulTimer <= 0.f) {
             applyDamage(spikeDamage);
@@ -365,7 +348,6 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
         }
     }
 
-    // Fall off map -> immediate death
     float mapHeightPx = mapHeight * tileSize;
     if (shape.getPosition().y > mapHeightPx + 100.f) {
         hp = 0;
@@ -375,7 +357,6 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
         return;
     }
 
-    // Enemy contact damage
     for (auto& e : enemies) {
         if (!e.isAlive()) continue;
         int dmg = e.checkAndGetContactDamage(playerBounds, dt);
@@ -388,8 +369,7 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
 void Player::draw(sf::RenderWindow& window, sf::View& view1, sf::Font& font) {
     window.draw(shape);
 
-    // Stamina
-    sf::RectangleShape staminaBg;
+    /*sf::RectangleShape staminaBg;
     staminaBg.setSize({ maxStamina * 0.2f, 5.f });
     staminaBg.setFillColor(sf::Color(50, 50, 50));
     staminaBg.setPosition({ shape.getPosition().x, shape.getPosition().y - 10.f });
@@ -401,7 +381,6 @@ void Player::draw(sf::RenderWindow& window, sf::View& view1, sf::Font& font) {
     staminaBar.setPosition({ shape.getPosition().x, shape.getPosition().y - 10.f });
     window.draw(staminaBar);
 
-    // HP bar
     float hpBarW = 60.f;
     sf::RectangleShape hpBg;
     hpBg.setSize({ hpBarW, 8.f });
@@ -416,7 +395,6 @@ void Player::draw(sf::RenderWindow& window, sf::View& view1, sf::Font& font) {
     hpBar.setPosition({ shape.getPosition().x, shape.getPosition().y - 20.f });
     window.draw(hpBar);
 
-    // Coins text
     sf::Text coinText(font);
     coinText.setFont(font);
     coinText.setCharacterSize(16);
@@ -425,14 +403,13 @@ void Player::draw(sf::RenderWindow& window, sf::View& view1, sf::Font& font) {
     coinText.setPosition({ shape.getPosition().x, shape.getPosition().y - 40.f });
     window.draw(coinText);
 
-    // HP text
     sf::Text hpText(font);
     hpText.setFont(font);
     hpText.setCharacterSize(14);
     hpText.setFillColor(sf::Color::White);
     hpText.setString("HP: " + std::to_string(hp));
     hpText.setPosition({ shape.getPosition().x + hpBarW + 5.f, shape.getPosition().y - 22.f });
-    window.draw(hpText);
+    window.draw(hpText);*/
 
     window.setView(view1);
 }

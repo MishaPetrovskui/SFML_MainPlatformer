@@ -13,12 +13,12 @@ private:
     sf::Sprite sprite;
     sf::Vector2f spawnPos;
     float speed;
-    float detectionRange; // pixels
-    float verticalDetectRange; // pixels
+    float detectionRange;
+    float verticalDetectRange;
     int hp;
     int maxHp;
     EnemyState state;
-    float contactCooldown; // seconds between damage ticks to player
+    float contactCooldown;
     float contactTimer;
     int contactDamage;
     float patrolRange;
@@ -30,7 +30,5 @@ public:
     void takeDamage(int dmg);
     bool isAlive() const { return state != EnemyState::Dead; }
     sf::FloatRect getBounds() const { return sprite.getGlobalBounds(); }
-
-    // returns damage to apply to player this frame (0 if none)
     int checkAndGetContactDamage(const sf::FloatRect& playerBounds, float dt);
 };

@@ -538,9 +538,7 @@ int main()
         if (tile == 8) enemies.emplace_back(x * TileSize, y * TileSize, tx_Slime, TileSize);
         else if (tile == 9) enemies.emplace_back(x * TileSize, y * TileSize, tx_SlimeMan, TileSize);
     }
-    if (enemies.empty()) {
-        enemies.emplace_back(5.f * TileSize, 8.f * TileSize, tx_Slime, TileSize);
-    }
+    if (enemies.empty()) enemies.emplace_back(5.f * TileSize, 8.f * TileSize, tx_Slime, TileSize);
 
     Font font;
     if (!font.openFromFile("Fonts/DigitalPixelV100-Regular.ttf")) {
@@ -666,7 +664,7 @@ int main()
 
         if (gameState == PLAYING) {
             for (auto& e : enemies) {
-                e.update(dt, player.getPosition());
+                e.update(dt, player.getPosition(), MAP, MAP_WIDTH, MAP_HEIGHT, TileSize);
             }
 
             player.update(dt, MAP, MAP_WIDTH, MAP_HEIGHT, TileSize, view1, window, MobMAP, InterestingMAP, BackgroundMAP, enemies);

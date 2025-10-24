@@ -6,6 +6,15 @@ static bool rectsIntersect(const sf::FloatRect& a, const sf::FloatRect& b) {
         (a.position.y < b.position.y + b.size.y) && (a.position.y + a.size.y > b.position.y);
 }
 
+static bool isSolidTile(int tile) {
+    if (tile == -1) return false;
+    // treat sky (5) and coins (7) and hazards (16..21) as non-solid for standing
+    if (tile == 5 || tile == 7) return false;
+    if (tile >= 16 && tile <= 21) return false;
+    // otherwise consider solid
+    return true;
+}
+
 Enemy::Enemy(float x, float y, sf::Texture& texture, float tileSize)
     : sprite(texture)
 {
@@ -15,18 +24,72 @@ Enemy::Enemy(float x, float y, sf::Texture& texture, float tileSize)
     verticalDetectRange = tileSize * 3.f;
     patrolRange = tileSize * 3.f;
     speed = 80.f + (std::rand() % 40);
-    maxHp = 80; 
+    maxHp = 80;
     hp = maxHp;
     state = EnemyState::Idle;
     contactCooldown = 0.8f;
     contactTimer = 0.f;
     contactDamage = 10;
+
+    gravity = 900.f; // similar to player gravity
+    velocityY = 0.f;
 }
 
-void Enemy::update(float dt, const sf::Vector2f& playerPos) {
-    if (state == EnemyState::Dead) return;
+void Enemy::update(float dt, const sf::Vector2f& playerPos, int map[][501], int mapWidth, int mapHeight, float tileSize) {
+    if (state == EnemyState::Dead) {
+        return;
+    }
 
     sf::Vector2f pos = sprite.getPosition();
+
+    // --- vertical physics with tile collision detection ---
+    velocityY += gravity * dt;
+    float spriteH = sprite.getGlobalBounds().size.y;
+    float tentativeY = pos.y + velocityY * dt;
+
+    // compute horizontal tile range under the enemy
+    int leftTile = std::max(0, (int)std::floor(pos.x / tileSize));
+    int rightTile = std::min(mapWidth - 1, (int)std::floor((pos.x + sprite.getGlobalBounds().size.x - 1.f) / tileSize));
+
+    // compute tile row the feet would be in after move
+    int footTile = (int)std::floor((tentativeY + spriteH) / tileSize);
+
+    bool landed = false;
+    if (footTile >= 0 && footTile < mapHeight) {
+        for (int tx = leftTile; tx <= rightTile; ++tx) {
+            if (isSolidTile(map[footTile][tx])) {
+                // top of the tile
+                float tileTop = footTile * tileSize;
+                // if we would intersect or go below the tile top => land
+                if (tentativeY + spriteH >= tileTop) {
+                    pos.y = tileTop - spriteH;
+                    velocityY = 0.f;
+                    landed = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (!landed) {
+        // not supported by tile -> apply tentative Y
+        pos.y = tentativeY;
+    }
+
+    // If enemy fell far below map (fell into abyss) -> respawn at spawnPos and restore HP
+    float mapBottomPx = mapHeight * tileSize;
+    const float FALL_RESPAWN_THRESHOLD = 200.f; // below map bottom or far under spawn
+    if (pos.y > mapBottomPx + FALL_RESPAWN_THRESHOLD || pos.y > spawnPos.y + FALL_RESPAWN_THRESHOLD) {
+        pos = spawnPos;
+        velocityY = 0.f;
+        hp = maxHp;
+        state = EnemyState::Idle;
+        contactTimer = 0.f;
+        sprite.setPosition(pos);
+        return;
+    }
+
+    // horizontal AI (unchanged)
     float dx = playerPos.x - pos.x;
     float dy = playerPos.y - pos.y;
 
@@ -67,15 +130,6 @@ void Enemy::draw(sf::RenderWindow& window) {
 
     sf::FloatRect b = sprite.getGlobalBounds();
     sf::Vector2f center = { b.position.x + b.size.x * 0.5f, b.position.y + b.size.y * 0.5f };
-
-    sf::CircleShape rangeCircle;
-    rangeCircle.setRadius(detectionRange);
-    rangeCircle.setOrigin({ (float)detectionRange, (float)detectionRange });
-    rangeCircle.setPosition(center);
-    rangeCircle.setFillColor(sf::Color(255, 0, 0, 40));
-    rangeCircle.setOutlineColor(sf::Color(255, 0, 0, 90));
-    rangeCircle.setOutlineThickness(1.f);
-    window.draw(rangeCircle);
 
     window.draw(sprite);
 

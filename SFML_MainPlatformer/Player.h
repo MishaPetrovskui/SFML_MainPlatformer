@@ -5,11 +5,15 @@
 #include <map>
 #include <vector>
 
+using namespace sf;
+using namespace std;
 class Enemy;
 
 class Player {
 private:
     sf::RectangleShape shape;
+    sf::Sprite sprite;
+    sf::Texture texture;
     sf::Vector2f velocity;
     float speed;
     float gravity;
@@ -41,10 +45,69 @@ private:
     bool wasOnSpike;
     sf::Keyboard::Key attackKey;
 
+    string currentAnimation = "idle";
+    map<string, vector<IntRect>> animation = {
+        {
+            "idle", {
+                IntRect({7, 4}, {16, 28}),
+                IntRect({39, 4}, {16, 28}),
+            }
+        },
+        {
+            "walkToRight", {
+                IntRect({6, 103}, {17, 25}),
+                IntRect({39, 102}, {16, 26}),
+                IntRect({71, 100}, {16, 28}),
+                IntRect({103, 101}, {16, 27}),
+                IntRect({103, 101}, {16, 27}),
+                IntRect({167, 102}, {16, 26}),
+                IntRect({199, 100}, {16, 28}),
+                IntRect({231, 101}, {16, 27}),
+            }
+        },
+        {
+            "walkToLeft", {
+                IntRect({6, 103}, {17, 25}),
+                IntRect({39, 102}, {16, 26}),
+                IntRect({71, 100}, {16, 28}),
+                IntRect({103, 101}, {16, 27}),
+                IntRect({103, 101}, {16, 27}),
+                IntRect({167, 102}, {16, 26}),
+                IntRect({199, 100}, {16, 28}),
+                IntRect({231, 101}, {16, 27}),
+            }
+        },
+        {
+            "Death",{
+                IntRect({7, 228}, {16, 28}),
+                IntRect({37, 229}, {18, 27}),
+                IntRect({70, 231}, {17, 25}),
+                IntRect({103, 233}, {17, 24}),
+                IntRect({135, 239}, {21, 17}),
+                IntRect({162, 244}, {29, 12}),
+                IntRect({194, 245}, {29, 11}),
+                IntRect({226, 245}, {29, 11}),
+            }
+        },
+        {
+            "Jump",{
+                IntRect({7, 260}, {16, 28}),
+                IntRect({40, 260}, {16, 28}),
+                IntRect({71, 260}, {19, 28}),
+                IntRect({102, 257}, {19, 31}),
+                IntRect({134, 257}, {16, 31}),
+                IntRect({166, 264}, {19, 24}),
+                IntRect({197, 262}, {18, 26}),
+                IntRect({231, 260}, {16, 28}),
+            }
+        },
+    };
+
+
     bool checkWallContact(int map[][501], int mapWidth, int mapHeight, float tileSize);
 
 public:
-    Player(float startX = 50.f, float startY = 50.f);
+    Player(Texture, float startX = 50.f, float startY = 50.f);
     void update(float dt, int map[][501], int mapWidth, int mapHeight, float tileSize, sf::View& view1, sf::RenderWindow& window,
         int mobMap[][501], int interestingMap[][501], int backgroundMap[][501], std::vector<Enemy>& enemies);
     void draw(sf::RenderWindow& window, sf::View& view1, sf::Font& font);

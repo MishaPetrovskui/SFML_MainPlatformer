@@ -296,7 +296,7 @@ void DrawCreatorsMenu(RenderWindow& window, Font& font, Vector2i mousePos) {
 
     vector<string> creators = {
         "Petrovskiy Mikhailo (Dram)",
-        "Yashenko Denis (HoWL)"
+        "Yashchenko Denis (HoWL)"
     };
 
     float y = 300.f;

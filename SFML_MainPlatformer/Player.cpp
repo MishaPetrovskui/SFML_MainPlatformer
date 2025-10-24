@@ -2,6 +2,7 @@
 #include "Enemy.h"
 #include <algorithm>
 
+
 static bool rectsIntersect(const sf::FloatRect& a, const sf::FloatRect& b) {
     return (a.position.x < b.position.x + b.size.x) && (a.position.x + a.size.x > b.position.x) &&
         (a.position.y < b.position.y + b.size.y) && (a.position.y + a.size.y > b.position.y);
@@ -11,7 +12,7 @@ static sf::FloatRect expandRect(const sf::FloatRect& r, float pad) {
     return sf::FloatRect({ r.position.x - pad, r.position.y - pad }, { r.size.x + pad * 2.f, r.size.y + pad * 2.f });
 }
 
-Player::Player(float startX, float startY) {
+Player::Player(sf::Texture _tx, float startX, float startY): sprite(_tx){
     shape.setSize({ 30.f, 40.f });
     shape.setFillColor(sf::Color::Red);
     shape.setPosition({ startX, startY });

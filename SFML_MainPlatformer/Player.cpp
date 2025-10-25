@@ -11,6 +11,27 @@ static sf::FloatRect expandRect(const sf::FloatRect& r, float pad) {
     return sf::FloatRect({ r.position.x - pad, r.position.y - pad }, { r.size.x + pad * 2.f, r.size.y + pad * 2.f });
 }
 
+static sf::FloatRect getSpikeHitbox(float tx, float ty, float tileSize, int spikeType) {
+    const float SPIKE_DEPTH = tileSize * 0.4f;
+
+    switch (spikeType) {
+    case 18:
+        return sf::FloatRect({ tx, ty + tileSize - SPIKE_DEPTH }, { tileSize, SPIKE_DEPTH });
+
+    case 19:
+        return sf::FloatRect({ tx, ty }, { SPIKE_DEPTH, tileSize });
+
+    case 20:
+        return sf::FloatRect({ tx + tileSize - SPIKE_DEPTH, ty }, { SPIKE_DEPTH, tileSize });
+
+    case 21:
+        return sf::FloatRect({ tx, ty }, { tileSize, SPIKE_DEPTH });
+
+    default:
+        return sf::FloatRect({ tx, ty }, { tileSize, tileSize });
+    }
+}
+
 Player::Player(sf::Texture _tx, float startX, float startY) : texture(_tx), sprite(_tx) {
     shape.setSize({ 30.f, 40.f });
     shape.setPosition({ startX, startY });
@@ -439,8 +460,21 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
                 }
             }
 
-            if ((t1 >= 18 && t1 <= 21) || (t2 >= 18 && t2 <= 21) || (t3 >= 18 && t3 <= 21)) {
-                if (rectsIntersect(playerBounds, tileRect)) {
+            if (t1 >= 18 && t1 <= 21) {
+                sf::FloatRect spikeHitbox = getSpikeHitbox(x * tileSize, y * tileSize, tileSize, t1);
+                if (rectsIntersect(playerBounds, spikeHitbox)) {
+                    onSpike = true;
+                }
+            }
+            if (t2 >= 18 && t2 <= 21) {
+                sf::FloatRect spikeHitbox = getSpikeHitbox(x * tileSize, y * tileSize, tileSize, t2);
+                if (rectsIntersect(playerBounds, spikeHitbox)) {
+                    onSpike = true;
+                }
+            }
+            if (t3 >= 18 && t3 <= 21) {
+                sf::FloatRect spikeHitbox = getSpikeHitbox(x * tileSize, y * tileSize, tileSize, t3);
+                if (rectsIntersect(playerBounds, spikeHitbox)) {
                     onSpike = true;
                 }
             }
@@ -510,4 +544,8 @@ void Player::reset() {
     sprite.setPosition(spawnPoint);
     sprite.setTextureRect(animation["idle"][0]);
     sprite.setScale({ 2.5f, 2.5f });
+}
+
+void Player::setSpawnPoint(float x, float y) {
+    spawnPoint = { x, y };
 }

@@ -5,6 +5,9 @@
 #include <cstring>
 #include <set>
 #include <windows.h>
+#include <fstream>
+#include <sstream>
+#include <iomanip>
 #include "Player.h"
 #include "Enemy.h"
 
@@ -29,10 +32,89 @@ enum GameState {
     CREATORS_MENU,
     SETTINGS_MENU,
     PLAYING,
-    GAME_OVER
+    GAME_OVER,
+    BEST_TIMES_MENU
 };
 
 int currentLevel = 1;
+
+struct LevelRecord {
+    int level;
+    float time;
+    int coins;
+    int kills;
+    bool completed;
+
+    LevelRecord() : level(0), time(999999.f), coins(0), kills(0), completed(false) {}
+    LevelRecord(int l, float t, int c, int k, bool comp)
+        : level(l), time(t), coins(c), kills(k), completed(comp) {
+    }
+};
+
+std::map<int, LevelRecord> bestRecords;
+
+void saveBestRecord(const LevelRecord& record) {
+    std::map<int, LevelRecord> allRecords;
+
+    std::ifstream inFile("best_records.txt");
+    if (inFile.is_open()) {
+        std::string line;
+        while (std::getline(inFile, line)) {
+            if (line.empty() || line[0] == '#') continue;
+
+            std::istringstream iss(line);
+            LevelRecord rec;
+            int completed_int;
+
+            if (iss >> rec.level >> rec.time >> rec.coins >> rec.kills >> completed_int) {
+                rec.completed = (completed_int == 1);
+                allRecords[rec.level] = rec;
+            }
+        }
+        inFile.close();
+    }
+
+    if (allRecords.find(record.level) == allRecords.end() ||
+        record.time < allRecords[record.level].time) {
+        allRecords[record.level] = record;
+    }
+
+    std::ofstream outFile("best_records.txt");
+    if (outFile.is_open()) {
+        outFile << "# Level Time Coins Kills Completed\n";
+        for (const auto& pair : allRecords) {
+            outFile << pair.second.level << " "
+                << pair.second.time << " "
+                << pair.second.coins << " "
+                << pair.second.kills << " "
+                << (pair.second.completed ? 1 : 0) << "\n";
+        }
+        outFile.close();
+    }
+}
+
+void loadBestRecords() {
+    bestRecords.clear();
+    std::ifstream file("best_records.txt");
+
+    if (!file.is_open()) return;
+
+    std::string line;
+    while (std::getline(file, line)) {
+        if (line.empty() || line[0] == '#') continue;
+
+        std::istringstream iss(line);
+        LevelRecord rec;
+        int completed_int;
+
+        if (iss >> rec.level >> rec.time >> rec.coins >> rec.kills >> completed_int) {
+            rec.completed = (completed_int == 1);
+            bestRecords[rec.level] = rec;
+        }
+    }
+
+    file.close();
+}
 
 bool loadLevel(int levelNumber, std::vector<std::tuple<int, int, int>>& mobTemplate) {
     string filename = "Map" + to_string(levelNumber) + ".txt";
@@ -294,13 +376,77 @@ void DrawLevelsMenu(RenderWindow& window, Font& font, Vector2i mousePos) {
     title.setPosition({ (1200.f - titleBounds.size.x) / 2.f, 120.f });
     window.draw(title);
 
-    FloatRect level1Rect({ 450.f, 280.f }, { 300.f, 50.f });
+    FloatRect level1Rect({ 450.f, 250.f }, { 300.f, 50.f });
     DrawMenuButton(window, level1Rect, "LEVEL 1", font, level1Rect.contains(Vector2f(mousePos)));
 
-    FloatRect level2Rect({ 450.f, 350.f }, { 300.f, 50.f });
+    FloatRect level2Rect({ 450.f, 320.f }, { 300.f, 50.f });
     DrawMenuButton(window, level2Rect, "LEVEL 2", font, level2Rect.contains(Vector2f(mousePos)));
 
+    FloatRect bestTimesRect({ 450.f, 390.f }, { 300.f, 50.f });
+    DrawMenuButton(window, bestTimesRect, "BEST TIMES", font, bestTimesRect.contains(Vector2f(mousePos)));
+
     FloatRect backRect({ 450.f, 510.f }, { 300.f, 50.f });
+    DrawMenuButton(window, backRect, "BACK", font, backRect.contains(Vector2f(mousePos)));
+}
+
+void DrawBestTimesMenu(RenderWindow& window, Font& font, Vector2i mousePos) {
+    window.setView(window.getDefaultView());
+
+    Text title(font, "BEST TIMES", 48);
+    title.setFillColor(Color::White);
+    FloatRect titleBounds = title.getLocalBounds();
+    title.setPosition({ (1200.f - titleBounds.size.x) / 2.f, 80.f });
+    window.draw(title);
+
+    float yPos = 200.f;
+
+    for (int lvl = 1; lvl <= 2; ++lvl) {
+        string levelText = "LEVEL " + to_string(lvl);
+        Text lvlTitle(font, levelText, 28);
+        lvlTitle.setFillColor(Color::Yellow);
+        FloatRect lvlBounds = lvlTitle.getLocalBounds();
+        lvlTitle.setPosition({ (1200.f - lvlBounds.size.x) / 2.f, yPos });
+        window.draw(lvlTitle);
+        yPos += 40.f;
+
+        if (bestRecords.find(lvl) != bestRecords.end() && bestRecords[lvl].completed) {
+            const LevelRecord& rec = bestRecords[lvl];
+
+            string timeStr = "Time: " + FormatTime(rec.time);
+            Text timeText(font, timeStr, 20);
+            timeText.setFillColor(Color::White);
+            FloatRect timeBounds = timeText.getLocalBounds();
+            timeText.setPosition({ (1200.f - timeBounds.size.x) / 2.f, yPos });
+            window.draw(timeText);
+            yPos += 30.f;
+
+            string coinsStr = "Coins: " + to_string(rec.coins);
+            Text coinsText(font, coinsStr, 20);
+            coinsText.setFillColor(Color::White);
+            FloatRect coinsBounds = coinsText.getLocalBounds();
+            coinsText.setPosition({ (1200.f - coinsBounds.size.x) / 2.f, yPos });
+            window.draw(coinsText);
+            yPos += 30.f;
+
+            string killsStr = "Kills: " + to_string(rec.kills);
+            Text killsText(font, killsStr, 20);
+            killsText.setFillColor(Color::White);
+            FloatRect killsBounds = killsText.getLocalBounds();
+            killsText.setPosition({ (1200.f - killsBounds.size.x) / 2.f, yPos });
+            window.draw(killsText);
+            yPos += 50.f;
+        }
+        else {
+            Text noRecord(font, "No record yet", 20);
+            noRecord.setFillColor(Color(150, 150, 150));
+            FloatRect noBounds = noRecord.getLocalBounds();
+            noRecord.setPosition({ (1200.f - noBounds.size.x) / 2.f, yPos });
+            window.draw(noRecord);
+            yPos += 60.f;
+        }
+    }
+
+    FloatRect backRect({ 450.f, 650.f }, { 300.f, 50.f });
     DrawMenuButton(window, backRect, "BACK", font, backRect.contains(Vector2f(mousePos)));
 }
 
@@ -451,7 +597,7 @@ void drawGameOver(RenderWindow& window, Font& font) {
     gameOverText.setFillColor(Color::Red);
     gameOverText.setOutlineColor(Color::White);
     gameOverText.setOutlineThickness(3.f);
-    gameOverText.setPosition({ 350.f-100, 250.f });
+    gameOverText.setPosition({ 350.f - 100, 250.f });
     window.draw(gameOverText);
 
     Text restartText(font, "Press ENTER to restart", 27);
@@ -497,24 +643,60 @@ void drawEndInfo(RenderWindow& window, Font& font, float finalTime, int coins, i
     killsLabel.setPosition({ 420.f, 380.f });
     window.draw(killsLabel);
 
+    if (completed) {
+        bool isNewRecord = false;
+        if (bestRecords.find(levelNum) == bestRecords.end() ||
+            finalTime < bestRecords[levelNum].time) {
+            isNewRecord = true;
+        }
+
+        if (isNewRecord) {
+            Text newRecordText(font, "NEW BEST TIME!", 24);
+            newRecordText.setFillColor(Color(255, 215, 0));
+            FloatRect nrBounds = newRecordText.getLocalBounds();
+            newRecordText.setPosition({ (1200.f - nrBounds.size.x) / 2.f, 430.f });
+            window.draw(newRecordText);
+        }
+    }
+
     Text restartText(font, "Press ENTER to restart", 24);
     restartText.setFillColor(Color::White);
-    restartText.setPosition({ 430.f, 460.f });
+    restartText.setPosition({ 430.f, 500.f });
     window.draw(restartText);
 
     Text menuText(font, "Press ESC for menu", 20);
     menuText.setFillColor(Color(200, 200, 200));
-    menuText.setPosition({ 470.f, 500.f });
+    menuText.setPosition({ 470.f, 540.f });
     window.draw(menuText);
 }
 
 void initializeLevel(int levelNum, std::vector<std::tuple<int, int, int>>& mobTemplate,
     std::vector<Enemy>& enemies, Texture& tx_Slime, Texture& tx_SlimeMan,
-    static int OriginalInterestingMAP[MAP_HEIGHT][MAP_WIDTH + 1]) {
+    static int OriginalInterestingMAP[MAP_HEIGHT][MAP_WIDTH + 1], Player& player) {
     loadLevel(levelNum, mobTemplate);
     analyzeMaps();
 
     std::memcpy(OriginalInterestingMAP, InterestingMAP, sizeof(InterestingMAP));
+
+    bool foundSpawn = false;
+    for (int y = 0; y < MAP_HEIGHT; ++y) {
+        for (int x = 0; x < MAP_WIDTH; ++x) {
+            if (MAP[y][x] == 12 || InterestingMAP[y][x] == 12 || BackgroundMAP[y][x] == 12) {
+                float spawnX = x * TileSize;
+                float spawnY = y * TileSize;
+                player.setSpawnPoint(spawnX, spawnY);
+                foundSpawn = true;
+                std::cout << "Spawn point set at: " << spawnX << ", " << spawnY << std::endl;
+                break;
+            }
+        }
+        if (foundSpawn) break;
+    }
+
+    if (!foundSpawn) {
+        std::cout << "Warning: Orange portal not found, using default spawn" << std::endl;
+        player.setSpawnPoint(100.f, 100.f);
+    }
 
     enemies.clear();
     for (auto& t : mobTemplate) {
@@ -531,6 +713,8 @@ int main()
     static int OriginalInterestingMAP[MAP_HEIGHT][MAP_WIDTH + 1] = {};
 
     std::vector<std::tuple<int, int, int>> mobTemplate;
+
+    loadBestRecords();
 
     if (!loadLevel(1, mobTemplate)) {
         return -1;
@@ -644,8 +828,9 @@ int main()
     float finalTime = 0.f;
     int finalCoins = 0;
     int finalKills = 0;
-	Vector2f StartdoorPosition(3600.f, 0.f  );
-	Vector2f EnddoorPosition(3651.f, 0.f);
+    Vector2f StartdoorPosition(3600.f, 0.f);
+    Vector2f EnddoorPosition(3651.f, 0.f);
+
     while (window.isOpen()) {
         while (const optional event = window.pollEvent())
         {
@@ -668,15 +853,18 @@ int main()
                         gameState = MAIN_MENU;
                         player.reset();
                     }
+                    else if (gameState == BEST_TIMES_MENU) {
+                        gameState = LEVELS_MENU;
+                    }
                     else {
                         window.close();
                     }
                 }
 
                 if (keyEvent->code == Keyboard::Key::Enter) {
-                    if (gameState == MAIN_MENU) {
+                    /*if (gameState == MAIN_MENU) {
                         gameState = PLAYING;
-                        initializeLevel(currentLevel, mobTemplate, enemies, tx_Slime, tx_SlimeMan, OriginalInterestingMAP);
+                        initializeLevel(currentLevel, mobTemplate, enemies, tx_Slime, tx_SlimeMan, OriginalInterestingMAP, player);
                         player.reset();
                         time = 0.f;
                         levelCompleted = false;
@@ -684,9 +872,9 @@ int main()
                         finalCoins = 0;
                         finalKills = 0;
                     }
-                    else if (gameState == GAME_OVER) {
+                    else */if (gameState == GAME_OVER) {
                         gameState = PLAYING;
-                        initializeLevel(currentLevel, mobTemplate, enemies, tx_Slime, tx_SlimeMan, OriginalInterestingMAP);
+                        initializeLevel(currentLevel, mobTemplate, enemies, tx_Slime, tx_SlimeMan, OriginalInterestingMAP, player);
                         player.reset();
                         time = 0.f;
                         levelCompleted = false;
@@ -718,14 +906,15 @@ int main()
                     else if (exitBtn.contains(mouse)) window.close();
                 }
                 else if (gameState == LEVELS_MENU) {
-                    FloatRect level1({ 450.f, 280.f }, { 300.f, 50.f });
-                    FloatRect level2({ 450.f, 350.f }, { 300.f, 50.f });
+                    FloatRect level1({ 450.f, 250.f }, { 300.f, 50.f });
+                    FloatRect level2({ 450.f, 320.f }, { 300.f, 50.f });
+                    FloatRect bestTimes({ 450.f, 390.f }, { 300.f, 50.f });
                     FloatRect back({ 450.f, 510.f }, { 300.f, 50.f });
 
                     if (level1.contains(mouse)) {
                         currentLevel = 1;
                         gameState = PLAYING;
-                        initializeLevel(currentLevel, mobTemplate, enemies, tx_Slime, tx_SlimeMan, OriginalInterestingMAP);
+                        initializeLevel(currentLevel, mobTemplate, enemies, tx_Slime, tx_SlimeMan, OriginalInterestingMAP, player);
                         player.reset();
                         time = 0.f;
                         levelCompleted = false;
@@ -738,7 +927,7 @@ int main()
                     else if (level2.contains(mouse)) {
                         currentLevel = 2;
                         gameState = PLAYING;
-                        initializeLevel(currentLevel, mobTemplate, enemies, tx_Slime, tx_SlimeMan, OriginalInterestingMAP);
+                        initializeLevel(currentLevel, mobTemplate, enemies, tx_Slime, tx_SlimeMan, OriginalInterestingMAP, player);
                         player.reset();
                         time = 0.f;
                         levelCompleted = false;
@@ -748,7 +937,14 @@ int main()
                         StartdoorPosition = Vector2f(4400.f, 0.f);
                         EnddoorPosition = Vector2f(4444.f, 0.f);
                     }
+                    else if (bestTimes.contains(mouse)) {
+                        gameState = BEST_TIMES_MENU;
+                    }
                     else if (back.contains(mouse)) gameState = MAIN_MENU;
+                }
+                else if (gameState == BEST_TIMES_MENU) {
+                    FloatRect back({ 450.f, 650.f }, { 300.f, 50.f });
+                    if (back.contains(mouse)) gameState = LEVELS_MENU;
                 }
                 else if (gameState == CREATORS_MENU) {
                     FloatRect back({ 450.f, 510.f }, { 300.f, 50.f });
@@ -841,6 +1037,11 @@ int main()
                     finalCoins = player.getCoins();
                     finalKills = 0;
                     for (auto& e : enemies) if (!e.isAlive()) finalKills++;
+
+                    LevelRecord newRecord(currentLevel, finalTime, finalCoins, finalKills, true);
+                    saveBestRecord(newRecord);
+                    loadBestRecords();
+
                     gameState = GAME_OVER;
                 }
             }
@@ -850,7 +1051,8 @@ int main()
         window.clear(Color::Cyan);
 
         if (gameState == MAIN_MENU || gameState == LEVELS_MENU ||
-            gameState == CREATORS_MENU || gameState == SETTINGS_MENU) {
+            gameState == CREATORS_MENU || gameState == SETTINGS_MENU ||
+            gameState == BEST_TIMES_MENU) {
             if (hasMenuBg) {
                 Sprite menuBg(menuBgTexture);
                 Vector2u texSize = menuBgTexture.getSize();
@@ -885,6 +1087,9 @@ int main()
         }
         else if (gameState == LEVELS_MENU) {
             DrawLevelsMenu(window, font, mousePos);
+        }
+        else if (gameState == BEST_TIMES_MENU) {
+            DrawBestTimesMenu(window, font, mousePos);
         }
         else if (gameState == CREATORS_MENU) {
             DrawCreatorsMenu(window, font, mousePos);

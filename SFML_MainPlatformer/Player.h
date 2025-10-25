@@ -97,9 +97,6 @@ private:
         },
         {
             "Attack",{
-                /*IntRect({7, 260}, {16, 28}),
-                IntRect({40, 260}, {16, 28}),
-                IntRect({71, 260}, {19, 28}),*/
                 IntRect({102, 257}, {19, 31}),
                 IntRect({134, 257}, {16, 31}),
                 IntRect({166, 264}, {19, 24}),
@@ -142,4 +139,5 @@ public:
     sf::Keyboard::Key getAttackKey() const { return attackKey; }
     bool hasFinishedDeathAnimation() const { return deathAnimationFinished; }
     bool getHasKey() const { return hasKey; }
+    void setSpawnPoint(float x, float y);
 };

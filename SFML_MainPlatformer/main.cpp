@@ -11,8 +11,6 @@
 using namespace sf;
 using namespace std;
 
-#define FILE_PATH "Map1.txt"
-
 const static int MAP_WIDTH = 500;
 const static int MAP_HEIGHT = 20;
 std::string FormatTime(float seconds);
@@ -33,6 +31,43 @@ enum GameState {
     PLAYING,
     GAME_OVER
 };
+
+int currentLevel = 1;
+
+bool loadLevel(int levelNumber, std::vector<std::tuple<int, int, int>>& mobTemplate) {
+    string filename = "Map" + to_string(levelNumber) + ".txt";
+    FILE* file;
+    if (errno_t err_n = fopen_s(&file, filename.c_str(), "r")) {
+        cout << "Map file " << filename << " not found!" << endl;
+        return false;
+    }
+
+    fread(&BackgroundMAP, sizeof(BackgroundMAP), 1, file);
+    fread(&MAP, sizeof(MAP), 1, file);
+    fread(&MobMAP, sizeof(MobMAP), 1, file);
+    fread(&InterestingMAP, sizeof(InterestingMAP), 1, file);
+    fclose(file);
+
+    for (int y = 0; y < MAP_HEIGHT; y++)
+        for (int x = 0; x < MAP_WIDTH; x++) {
+            if (BackgroundMAP[y][x] == 0 && MAP[y][x] == 0)
+                BackgroundMAP[y][x] = 5;
+        }
+
+    mobTemplate.clear();
+    for (int y = 0; y < MAP_HEIGHT; ++y) {
+        for (int x = 0; x < MAP_WIDTH; ++x) {
+            int tile = MobMAP[y][x];
+            if (tile == 8 || tile == 9) {
+                mobTemplate.emplace_back(x, y, tile);
+                MobMAP[y][x] = -1;
+            }
+        }
+    }
+
+    cout << "Level " << levelNumber << " loaded successfully!" << endl;
+    return true;
+}
 
 void analyzeMaps() {
     std::set<int> bgTiles, mainTiles, mobTiles, interestTiles;
@@ -80,31 +115,11 @@ void analyzeMaps() {
             if (t1 == 16 || t1 == 17 || t2 == 16 || t2 == 17 ||
                 t3 == 16 || t3 == 17 || t4 == 16 || t4 == 17) {
                 lavaCount++;
-                if (lavaCount <= 5) {
-                    int tile = (t1 == 16 || t1 == 17) ? t1 :
-                        (t2 == 16 || t2 == 17) ? t2 :
-                        (t3 == 16 || t3 == 17) ? t3 : t4;
-                    string layer = (t1 == 16 || t1 == 17) ? "MAP" :
-                        (t2 == 16 || t2 == 17) ? "BG" :
-                        (t3 == 16 || t3 == 17) ? "MOB" : "INTERESTING";
-                    cout << "Lava at (" << x << "," << y << ") - tile " << tile
-                        << " in layer " << layer << endl;
-                }
             }
 
             if ((t1 >= 18 && t1 <= 21) || (t2 >= 18 && t2 <= 21) ||
                 (t3 >= 18 && t3 <= 21) || (t4 >= 18 && t4 <= 21)) {
                 spikeCount++;
-                if (spikeCount <= 9) {
-                    int tile = (t1 >= 18 && t1 <= 21) ? t1 :
-                        (t2 >= 18 && t2 <= 21) ? t2 :
-                        (t3 >= 18 && t3 <= 21) ? t3 : t4;
-                    string layer = (t1 >= 18 && t1 <= 21) ? "MAP" :
-                        (t2 >= 18 && t2 <= 21) ? "BG" :
-                        (t3 >= 18 && t3 <= 21) ? "MOB" : "INTERESTING";
-                    cout << "Spike at (" << x << "," << y << ") - tile " << tile
-                        << " in layer " << layer << endl;
-                }
             }
         }
     }
@@ -242,8 +257,8 @@ void DrawMenuButton(RenderWindow& window, const FloatRect& rect, const string& t
     FloatRect bounds = txt.getLocalBounds();
     txt.setPosition({
         rect.position.x + (rect.size.x - bounds.size.x) / 2.f,
-		rect.position.y + (rect.size.y - bounds.size.y) / 2.f + 7.f
-    });
+        rect.position.y + (rect.size.y - bounds.size.y) / 2.f + 7.f
+        });
     window.draw(txt);
 }
 
@@ -254,7 +269,7 @@ void DrawMainMenu(RenderWindow& window, Font& font, Vector2i mousePos) {
     title.setFillColor(Color::White);
     title.setStyle(Text::Bold);
     FloatRect titleBounds = title.getLocalBounds();
-    title.setPosition({(1200.f - titleBounds.size.x) / 2.f, 120.f});
+    title.setPosition({ (1200.f - titleBounds.size.x) / 2.f, 120.f });
     window.draw(title);
 
     vector<pair<string, FloatRect>> buttons = {
@@ -279,8 +294,11 @@ void DrawLevelsMenu(RenderWindow& window, Font& font, Vector2i mousePos) {
     title.setPosition({ (1200.f - titleBounds.size.x) / 2.f, 120.f });
     window.draw(title);
 
-    FloatRect levelRect({ 450.f, 300.f }, { 300.f, 50.f });
-    DrawMenuButton(window, levelRect, "LEVEL 1", font, levelRect.contains(Vector2f(mousePos)));
+    FloatRect level1Rect({ 450.f, 280.f }, { 300.f, 50.f });
+    DrawMenuButton(window, level1Rect, "LEVEL 1", font, level1Rect.contains(Vector2f(mousePos)));
+
+    FloatRect level2Rect({ 450.f, 350.f }, { 300.f, 50.f });
+    DrawMenuButton(window, level2Rect, "LEVEL 2", font, level2Rect.contains(Vector2f(mousePos)));
 
     FloatRect backRect({ 450.f, 510.f }, { 300.f, 50.f });
     DrawMenuButton(window, backRect, "BACK", font, backRect.contains(Vector2f(mousePos)));
@@ -342,12 +360,12 @@ void DrawSettingsMenu(RenderWindow& window, Font& font, Vector2i mousePos, Keybo
         prompt.setPosition({
             300.f + (600.f - bounds.size.x) / 2.f,
             300.f + (200.f - bounds.size.y) / 2.f
-        });
+            });
         window.draw(prompt);
     }
 }
 
-void DrawHUD(RenderWindow& window, Font& font, const Player& player, float gameTime) {
+void DrawHUD(RenderWindow& window, Font& font, const Player& player, float gameTime, int levelNum) {
     View gameView = window.getView();
     window.setView(window.getDefaultView());
 
@@ -387,13 +405,18 @@ void DrawHUD(RenderWindow& window, Font& font, const Player& player, float gameT
     staBar.setFillColor(Color::Green);
     window.draw(staBar);
 
+    Text levelText(font, "Level: " + to_string(levelNum), 24);
+    levelText.setPosition({ leftX, 85.f });
+    levelText.setFillColor(Color::White);
+    window.draw(levelText);
+
     string timeStr = FormatTime(gameTime);
     Text timeText(font, timeStr, 32);
     FloatRect timeBounds = timeText.getLocalBounds();
     timeText.setPosition({
         (1200.f - timeBounds.size.x) / 2.f,
         45.f
-    });
+        });
     timeText.setFillColor(Color::White);
     window.draw(timeText);
 
@@ -428,7 +451,7 @@ void drawGameOver(RenderWindow& window, Font& font) {
     gameOverText.setFillColor(Color::Red);
     gameOverText.setOutlineColor(Color::White);
     gameOverText.setOutlineThickness(3.f);
-    gameOverText.setPosition({ 350.f, 250.f });
+    gameOverText.setPosition({ 350.f-100, 250.f });
     window.draw(gameOverText);
 
     Text restartText(font, "Press ENTER to restart", 27);
@@ -442,7 +465,7 @@ void drawGameOver(RenderWindow& window, Font& font) {
     window.draw(menuText);
 }
 
-void drawEndInfo(RenderWindow& window, Font& font, float finalTime, int coins, int kills, bool completed) {
+void drawEndInfo(RenderWindow& window, Font& font, float finalTime, int coins, int kills, bool completed, int levelNum) {
     View menuView = window.getDefaultView();
     window.setView(menuView);
 
@@ -450,8 +473,8 @@ void drawEndInfo(RenderWindow& window, Font& font, float finalTime, int coins, i
     overlay.setFillColor(Color(0, 0, 0, 200));
     window.draw(overlay);
 
-    string titleStr = completed ? "LEVEL COMPLETE" : "GAME OVER";
-    Text title(font, titleStr, 64);
+    string titleStr = completed ? "LEVEL " + to_string(levelNum) + " COMPLETE!" : "GAME OVER";
+    Text title(font, titleStr, 59);
     title.setFillColor(completed ? Color(0, 200, 100) : Color::Red);
     title.setOutlineColor(Color::White);
     title.setOutlineThickness(3.f);
@@ -485,24 +508,38 @@ void drawEndInfo(RenderWindow& window, Font& font, float finalTime, int coins, i
     window.draw(menuText);
 }
 
+void initializeLevel(int levelNum, std::vector<std::tuple<int, int, int>>& mobTemplate,
+    std::vector<Enemy>& enemies, Texture& tx_Slime, Texture& tx_SlimeMan,
+    static int OriginalInterestingMAP[MAP_HEIGHT][MAP_WIDTH + 1]) {
+    loadLevel(levelNum, mobTemplate);
+    analyzeMaps();
+
+    std::memcpy(OriginalInterestingMAP, InterestingMAP, sizeof(InterestingMAP));
+
+    enemies.clear();
+    for (auto& t : mobTemplate) {
+        int x, y, tile;
+        std::tie(x, y, tile) = t;
+        if (tile == 8) enemies.emplace_back(x * TileSize, y * TileSize, tx_Slime, TileSize);
+        else if (tile == 9) enemies.emplace_back(x * TileSize, y * TileSize, tx_SlimeMan, TileSize);
+    }
+    if (enemies.empty()) enemies.emplace_back(5.f * TileSize, 8.f * TileSize, tx_Slime, TileSize);
+}
+
 int main()
 {
-    FILE* file;
-    if (errno_t err_n = fopen_s(&file, FILE_PATH, "r"))
-    {
-        cout << "Map file not found!" << endl;
-        return err_n;
+    static int OriginalInterestingMAP[MAP_HEIGHT][MAP_WIDTH + 1] = {};
+
+    std::vector<std::tuple<int, int, int>> mobTemplate;
+
+    if (!loadLevel(1, mobTemplate)) {
+        return -1;
     }
-    fread(&BackgroundMAP, sizeof(BackgroundMAP), 1, file);
-    fread(&MAP, sizeof(MAP), 1, file);
-    fread(&MobMAP, sizeof(MobMAP), 1, file);
-    fread(&InterestingMAP, sizeof(InterestingMAP), 1, file);
-    fclose(file);
 
     analyzeMaps();
 
-    static int OriginalInterestingMAP[MAP_HEIGHT][MAP_WIDTH + 1] = {};
     std::memcpy(OriginalInterestingMAP, InterestingMAP, sizeof(InterestingMAP));
+
     for (int y = 0; y < MAP_HEIGHT; y++)
         for (int x = 0; x < MAP_WIDTH; x++) {
             if (BackgroundMAP[y][x] == 0 && MAP[y][x] == 0)
@@ -569,17 +606,6 @@ int main()
         {22, Sprite(tx_Key)},
     };
 
-    std::vector<std::tuple<int, int, int>> mobTemplate;
-    for (int y = 0; y < MAP_HEIGHT; ++y) {
-        for (int x = 0; x < MAP_WIDTH; ++x) {
-            int tile = MobMAP[y][x];
-            if (tile == 8 || tile == 9) {
-                mobTemplate.emplace_back(x, y, tile);
-                MobMAP[y][x] = -1;
-            }
-        }
-    }
-
     std::vector<Enemy> enemies;
     for (auto& t : mobTemplate) {
         int x, y, tile;
@@ -596,7 +622,7 @@ int main()
     }
 
     RenderWindow window(VideoMode({ 1200, 800 }), "Platformer Game");
-	Texture tx_Player("Sprites/AnimationSheet_Character.png");
+    Texture tx_Player("Sprites/AnimationSheet_Character.png");
     Player player(tx_Player, 100.f, 100.f);
     Clock clock;
     GameState gameState = MAIN_MENU;
@@ -606,8 +632,8 @@ int main()
     bool hasMenuBg = menuBgTexture.loadFromFile("Sprites/MENU1.png");
     float menuBgOffset = 0.f;
     const float MENU_SCROLL_SPEED = 50.f;
-    std::cout << hasMenuBg << endl;
-	float time = 0.f;
+
+    float time = 0.f;
     bool enteringDoor = false;
     float enterTimer = 0.f;
     const float ENTER_DURATION = 0.9f;
@@ -618,6 +644,8 @@ int main()
     float finalTime = 0.f;
     int finalCoins = 0;
     int finalKills = 0;
+	Vector2f StartdoorPosition(3600.f, 0.f  );
+	Vector2f EnddoorPosition(3651.f, 0.f);
     while (window.isOpen()) {
         while (const optional event = window.pollEvent())
         {
@@ -648,16 +676,8 @@ int main()
                 if (keyEvent->code == Keyboard::Key::Enter) {
                     if (gameState == MAIN_MENU) {
                         gameState = PLAYING;
-                        std::memcpy(InterestingMAP, OriginalInterestingMAP, sizeof(InterestingMAP));
+                        initializeLevel(currentLevel, mobTemplate, enemies, tx_Slime, tx_SlimeMan, OriginalInterestingMAP);
                         player.reset();
-                        enemies.clear();
-                        for (auto& t : mobTemplate) {
-                            int x, y, tile;
-                            std::tie(x, y, tile) = t;
-                            if (tile == 8) enemies.emplace_back(x * TileSize, y * TileSize, tx_Slime, TileSize);
-                            else if (tile == 9) enemies.emplace_back(x * TileSize, y * TileSize, tx_SlimeMan, TileSize);
-                        }
-                        if (enemies.empty()) enemies.emplace_back(5.f * TileSize, 8.f * TileSize, tx_Slime, TileSize);
                         time = 0.f;
                         levelCompleted = false;
                         finalTime = 0.f;
@@ -666,17 +686,9 @@ int main()
                     }
                     else if (gameState == GAME_OVER) {
                         gameState = PLAYING;
-                        std::memcpy(InterestingMAP, OriginalInterestingMAP, sizeof(InterestingMAP));
+                        initializeLevel(currentLevel, mobTemplate, enemies, tx_Slime, tx_SlimeMan, OriginalInterestingMAP);
                         player.reset();
-						time = 0.f;
-                        enemies.clear();
-                        for (auto& t : mobTemplate) {
-                            int x, y, tile;
-                            std::tie(x, y, tile) = t;
-                            if (tile == 8) enemies.emplace_back(x * TileSize, y * TileSize, tx_Slime, TileSize);
-                            else if (tile == 9) enemies.emplace_back(x * TileSize, y * TileSize, tx_SlimeMan, TileSize);
-                        }
-                        if (enemies.empty()) enemies.emplace_back(5.f * TileSize, 8.f * TileSize, tx_Slime, TileSize);
+                        time = 0.f;
                         levelCompleted = false;
                         finalTime = 0.f;
                         finalCoins = 0;
@@ -706,20 +718,35 @@ int main()
                     else if (exitBtn.contains(mouse)) window.close();
                 }
                 else if (gameState == LEVELS_MENU) {
-                    FloatRect level1({ 450.f, 300.f }, { 300.f, 50.f });
+                    FloatRect level1({ 450.f, 280.f }, { 300.f, 50.f });
+                    FloatRect level2({ 450.f, 350.f }, { 300.f, 50.f });
                     FloatRect back({ 450.f, 510.f }, { 300.f, 50.f });
+
                     if (level1.contains(mouse)) {
+                        currentLevel = 1;
                         gameState = PLAYING;
-                        std::memcpy(InterestingMAP, OriginalInterestingMAP, sizeof(InterestingMAP));
+                        initializeLevel(currentLevel, mobTemplate, enemies, tx_Slime, tx_SlimeMan, OriginalInterestingMAP);
                         player.reset();
-                        enemies.clear();
-                        for (auto& t : mobTemplate) {
-                            int x, y, tile;
-                            std::tie(x, y, tile) = t;
-                            if (tile == 8) enemies.emplace_back(x * TileSize, y * TileSize, tx_Slime, TileSize);
-                            else if (tile == 9) enemies.emplace_back(x * TileSize, y * TileSize, tx_SlimeMan, TileSize);
-                        }
-                        if (enemies.empty()) enemies.emplace_back(5.f * TileSize, 8.f * TileSize, tx_Slime, TileSize);
+                        time = 0.f;
+                        levelCompleted = false;
+                        finalTime = 0.f;
+                        finalCoins = 0;
+                        finalKills = 0;
+                        StartdoorPosition = Vector2f(3600.f, 0.f);
+                        EnddoorPosition = Vector2f(3651.f, 0.f);
+                    }
+                    else if (level2.contains(mouse)) {
+                        currentLevel = 2;
+                        gameState = PLAYING;
+                        initializeLevel(currentLevel, mobTemplate, enemies, tx_Slime, tx_SlimeMan, OriginalInterestingMAP);
+                        player.reset();
+                        time = 0.f;
+                        levelCompleted = false;
+                        finalTime = 0.f;
+                        finalCoins = 0;
+                        finalKills = 0;
+                        StartdoorPosition = Vector2f(4400.f, 0.f);
+                        EnddoorPosition = Vector2f(4444.f, 0.f);
                     }
                     else if (back.contains(mouse)) gameState = MAIN_MENU;
                 }
@@ -743,7 +770,7 @@ int main()
         float dt = clock.restart().asSeconds();
 
         if (gameState == PLAYING) {
-            if (player.getHasKey() && player.getPosition().x > 3600.f && player.getPosition().x < 3651.f)
+            if (player.getHasKey() && player.getPosition().x > StartdoorPosition.x && player.getPosition().x < EnddoorPosition.x)
                 enteringDoor = true;
             if (!enteringDoor) {
                 for (auto& e : enemies) {
@@ -772,7 +799,7 @@ int main()
                     finalCoins = player.getCoins();
                     finalKills = 0;
                     for (auto& e : enemies) if (!e.isAlive()) finalKills++;
-					gameState = GAME_OVER;
+                    gameState = GAME_OVER;
                 }
 
                 if (!enteringDoor) {
@@ -817,40 +844,43 @@ int main()
                     gameState = GAME_OVER;
                 }
             }
+            time += dt;
         }
 
         window.clear(Color::Cyan);
 
-        if (hasMenuBg) {
-            Sprite menuBg(menuBgTexture);
-            Vector2u texSize = menuBgTexture.getSize();
-            Vector2u winSize = window.getSize();
+        if (gameState == MAIN_MENU || gameState == LEVELS_MENU ||
+            gameState == CREATORS_MENU || gameState == SETTINGS_MENU) {
+            if (hasMenuBg) {
+                Sprite menuBg(menuBgTexture);
+                Vector2u texSize = menuBgTexture.getSize();
+                Vector2u winSize = window.getSize();
 
-            menuBgTexture.setRepeated(true);
+                menuBgTexture.setRepeated(true);
 
-            menuBgOffset += MENU_SCROLL_SPEED * dt;
-            if (menuBgOffset > texSize.x)
-                menuBgOffset -= texSize.x;
+                menuBgOffset += MENU_SCROLL_SPEED * dt;
+                if (menuBgOffset > texSize.x)
+                    menuBgOffset -= texSize.x;
 
-            menuBg.setTextureRect(IntRect({ static_cast<int>(menuBgOffset), 0 }, {
-                static_cast<int>(winSize.x),
-                static_cast<int>(winSize.y) }));
-            menuBg.setPosition({ 0.f, 0.f });
-            window.draw(menuBg);
+                menuBg.setTextureRect(IntRect({ static_cast<int>(menuBgOffset), 0 }, {
+                    static_cast<int>(winSize.x),
+                    static_cast<int>(winSize.y) }));
+                menuBg.setPosition({ 0.f, 0.f });
+                window.draw(menuBg);
 
-            menuBg.setTextureRect(IntRect({ 0, 0 }, {
-                static_cast<int>(winSize.x),
-                static_cast<int>(winSize.y) }));
-            menuBg.setPosition({ static_cast<float>(winSize.x) - menuBgOffset, 0.f });
-            window.draw(menuBg);
-        }
-        else {
-            window.clear(Color(20, 20, 40));
+                menuBg.setTextureRect(IntRect({ 0, 0 }, {
+                    static_cast<int>(winSize.x),
+                    static_cast<int>(winSize.y) }));
+                menuBg.setPosition({ static_cast<float>(winSize.x) - menuBgOffset, 0.f });
+                window.draw(menuBg);
+            }
+            else {
+                window.clear(Color(20, 20, 40));
+            }
         }
 
         Vector2i mousePos = Mouse::getPosition(window);
         if (gameState == MAIN_MENU) {
-            //drawMenu(window, font, player.getAttackKey(), waitingForRemap);
             DrawMainMenu(window, font, mousePos);
         }
         else if (gameState == LEVELS_MENU) {
@@ -872,8 +902,7 @@ int main()
             for (auto& e : enemies) e.draw(window);
 
             player.draw(window, view1, font);
-            DrawHUD(window, font, player, time += clock.getElapsedTime().asSeconds());
-			//std::cout << time << std::endl;
+            DrawHUD(window, font, player, time, currentLevel);
         }
         else if (gameState == GAME_OVER) {
             player.update(dt, MAP, MAP_WIDTH, MAP_HEIGHT, TileSize, view1, window, MobMAP, InterestingMAP, BackgroundMAP, enemies);
@@ -887,11 +916,11 @@ int main()
 
             player.draw(window, view1, font);
             if (levelCompleted) {
-                drawEndInfo(window, font, finalTime, finalCoins, finalKills, true);
+                drawEndInfo(window, font, finalTime, finalCoins, finalKills, true, currentLevel);
             }
             else {
                 drawGameOver(window, font);
-			}
+            }
         }
 
         window.display();

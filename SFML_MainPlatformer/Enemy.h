@@ -32,4 +32,5 @@ public:
     bool isAlive() const { return state != EnemyState::Dead; }
     sf::FloatRect getBounds() const { return sprite.getGlobalBounds(); }
     int checkAndGetContactDamage(const sf::FloatRect& playerBounds, float dt);
+	sf::Vector2f getPosition() const { return sprite.getPosition(); }
 };

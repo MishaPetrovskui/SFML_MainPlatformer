@@ -80,6 +80,10 @@ Player::Player(sf::Texture _tx, float startX, float startY) : texture(_tx), spri
 
     hasKey = false;
     deathAnimationFinished = false;
+
+    // инициализация нового флага
+    limitedDashMode = false;
+    dashAvailable = true;
 }
 
 bool Player::checkWallContact(int map[][501], int mapWidth, int mapHeight, float tileSize) {
@@ -184,7 +188,9 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
         }
     }
     else {
-        if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::LShift) && dashCooldownTimer <= 0.f && stamina >= 50.f) {
+        // при limitedDashMode проверяем доступность даша
+        if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::LShift) && dashCooldownTimer <= 0.f && stamina >= 50.f
+            && (!limitedDashMode || dashAvailable)) {
             sf::Vector2f dashDir = { 0.f, 0.f };
 
             if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::A) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Left))
@@ -204,6 +210,9 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
                 dashTimer = dashDuration;
                 dashCooldownTimer = dashCooldown;
                 stamina -= 50.f;
+
+                // если режим ограничен — пометим, что даш использован до следующего касания земли
+                if (limitedDashMode) dashAvailable = false;
             }
         }
 
@@ -349,6 +358,11 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
     }
 
     shape.setPosition(nextPos);
+
+    // если режим ограничен и игрок на земле — восстановить возможность даша
+    if (limitedDashMode && onGround) {
+        dashAvailable = true;
+    }
 
     if (!onGround) {
         setAnimation("Jump");
@@ -544,6 +558,9 @@ void Player::reset() {
     sprite.setPosition(spawnPoint);
     sprite.setTextureRect(animation["idle"][0]);
     sprite.setScale({ 2.5f, 2.5f });
+
+    // восстановим доступ к дашу при ресете
+    dashAvailable = true;
 }
 
 void Player::setSpawnPoint(float x, float y) {

@@ -37,6 +37,7 @@ enum GameState {
 };
 
 int currentLevel = 1;
+bool limitedDashMode = false; // false = неограниченные деши, true = один деш с перезарядкой
 
 struct LevelRecord {
     int level;
@@ -478,7 +479,7 @@ void DrawCreatorsMenu(RenderWindow& window, Font& font, Vector2i mousePos) {
     DrawMenuButton(window, backRect, "BACK", font, backRect.contains(Vector2f(mousePos)));
 }
 
-void DrawSettingsMenu(RenderWindow& window, Font& font, Vector2i mousePos, Keyboard::Key attackKey, bool waitingForRemap) {
+void DrawSettingsMenu(RenderWindow& window, Font& font, Vector2i mousePos, Keyboard::Key attackKey, bool waitingForRemap, bool limitedDash) {
     window.setView(window.getDefaultView());
 
     Text title(font, "SETTINGS", 48);
@@ -488,8 +489,12 @@ void DrawSettingsMenu(RenderWindow& window, Font& font, Vector2i mousePos, Keybo
     window.draw(title);
 
     string keyText = "KEY OF ATTACK: " + keyToString(attackKey);
-    FloatRect remapRect({ 450.f, 300.f }, { 300.f, 50.f });
+    FloatRect remapRect({ 450.f, 250.f }, { 300.f, 50.f });
     DrawMenuButton(window, remapRect, keyText, font, remapRect.contains(Vector2f(mousePos)));
+
+    string dashText = "DASH MODE: " + string(limitedDash ? "LIMITED" : "UNLIMITED");
+    FloatRect dashRect({ 450.f, 320.f }, { 300.f, 50.f });
+    DrawMenuButton(window, dashRect, dashText, font, dashRect.contains(Vector2f(mousePos)));
 
     FloatRect backRect({ 450.f, 510.f }, { 300.f, 50.f });
     DrawMenuButton(window, backRect, "BACK", font, backRect.contains(Vector2f(mousePos)));
@@ -862,20 +867,11 @@ int main()
                 }
 
                 if (keyEvent->code == Keyboard::Key::Enter) {
-                    /*if (gameState == MAIN_MENU) {
+                    if (gameState == GAME_OVER) {
                         gameState = PLAYING;
                         initializeLevel(currentLevel, mobTemplate, enemies, tx_Slime, tx_SlimeMan, OriginalInterestingMAP, player);
                         player.reset();
-                        time = 0.f;
-                        levelCompleted = false;
-                        finalTime = 0.f;
-                        finalCoins = 0;
-                        finalKills = 0;
-                    }
-                    else */if (gameState == GAME_OVER) {
-                        gameState = PLAYING;
-                        initializeLevel(currentLevel, mobTemplate, enemies, tx_Slime, tx_SlimeMan, OriginalInterestingMAP, player);
-                        player.reset();
+                        player.setLimitedDashMode(limitedDashMode);
                         time = 0.f;
                         levelCompleted = false;
                         finalTime = 0.f;
@@ -916,6 +912,7 @@ int main()
                         gameState = PLAYING;
                         initializeLevel(currentLevel, mobTemplate, enemies, tx_Slime, tx_SlimeMan, OriginalInterestingMAP, player);
                         player.reset();
+                        player.setLimitedDashMode(limitedDashMode);
                         time = 0.f;
                         levelCompleted = false;
                         finalTime = 0.f;
@@ -929,6 +926,7 @@ int main()
                         gameState = PLAYING;
                         initializeLevel(currentLevel, mobTemplate, enemies, tx_Slime, tx_SlimeMan, OriginalInterestingMAP, player);
                         player.reset();
+                        player.setLimitedDashMode(limitedDashMode);
                         time = 0.f;
                         levelCompleted = false;
                         finalTime = 0.f;
@@ -951,10 +949,15 @@ int main()
                     if (back.contains(mouse)) gameState = MAIN_MENU;
                 }
                 else if (gameState == SETTINGS_MENU) {
-                    FloatRect remap({ 450.f, 300.f }, { 300.f, 50.f });
+                    FloatRect remap({ 450.f, 250.f }, { 300.f, 50.f });
+                    FloatRect dashToggle({ 450.f, 320.f }, { 300.f, 50.f });
                     FloatRect back({ 450.f, 510.f }, { 300.f, 50.f });
+
                     if (remap.contains(mouse)) {
                         waitingForRemap = true;
+                    }
+                    else if (dashToggle.contains(mouse)) {
+                        limitedDashMode = !limitedDashMode;
                     }
                     else if (back.contains(mouse)) {
                         gameState = MAIN_MENU;
@@ -1095,7 +1098,7 @@ int main()
             DrawCreatorsMenu(window, font, mousePos);
         }
         else if (gameState == SETTINGS_MENU) {
-            DrawSettingsMenu(window, font, mousePos, player.getAttackKey(), waitingForRemap);
+            DrawSettingsMenu(window, font, mousePos, player.getAttackKey(), waitingForRemap, limitedDashMode);
         }
         else if (gameState == PLAYING) {
             window.setView(view1);

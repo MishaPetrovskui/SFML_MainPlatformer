@@ -52,6 +52,10 @@ private:
     bool hasKey;
     bool deathAnimationFinished;
 
+    // Новый функционал для ограничения даша
+    bool limitedDashMode; // если true — только один даш в воздухе, восстанавливается при касании земли
+    bool dashAvailable;   // доступен ли даш (для limitedDashMode)
+
     map<string, vector<IntRect>> animation = {
         {
             "idle", {
@@ -127,9 +131,11 @@ public:
     void update(float dt, int map[][501], int mapWidth, int mapHeight, float tileSize, sf::View& view1, sf::RenderWindow& window,
         int mobMap[][501], int interestingMap[][501], int backgroundMap[][501], std::vector<Enemy>& enemies);
     void draw(sf::RenderWindow& window, sf::View& view1, sf::Font& font);
-    sf::Vector2f getPosition() { return shape.getPosition(); }
+    sf::Vector2f getPosition() const { return shape.getPosition(); }
+    int getPositionX() const { return static_cast<int>(shape.getPosition().x); }
+    int getPositionY() const { return static_cast<int>(shape.getPosition().y); }
     void reset();
-    bool isAlive() { return hp > 0; }
+    bool isAlive() const { return hp > 0; }
     void applyDamage(int dmg) { hp -= dmg; if (hp < 0) hp = 0; }
     int getHP() const { return hp; }
     int getCoins() const { return coins; }
@@ -140,4 +146,8 @@ public:
     bool hasFinishedDeathAnimation() const { return deathAnimationFinished; }
     bool getHasKey() const { return hasKey; }
     void setSpawnPoint(float x, float y);
+
+    // управление режимом даша
+    void setLimitedDashMode(bool v) { limitedDashMode = v; if (!limitedDashMode) dashAvailable = true; }
+    bool getLimitedDashMode() const { return limitedDashMode; }
 };

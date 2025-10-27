@@ -188,7 +188,6 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
         }
     }
     else {
-        // при limitedDashMode проверяем доступность даша
         if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::LShift) && dashCooldownTimer <= 0.f && stamina >= 50.f
             && (!limitedDashMode || dashAvailable)) {
             sf::Vector2f dashDir = { 0.f, 0.f };
@@ -211,7 +210,6 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
                 dashCooldownTimer = dashCooldown;
                 stamina -= 50.f;
 
-                // если режим ограничен — пометим, что даш использован до следующего касания земли
                 if (limitedDashMode) dashAvailable = false;
             }
         }
@@ -281,8 +279,25 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
 
             if ((sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Up) ||
                 sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Space)) && onGround) {
-                velocity.y = -420.f;
+
+                const float DIAG_H_MULT = 1.1f;
+
+                bool left = sf::Keyboard::isKeyPressed(sf::Keyboard::Key::A) ||
+                    sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Left);
+                bool right = sf::Keyboard::isKeyPressed(sf::Keyboard::Key::D) ||
+                    sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Right);
+
+                float jumpVx = 0.f;
+                if (left && !right) jumpVx = -speed * DIAG_H_MULT;
+                else if (right && !left) jumpVx = speed * DIAG_H_MULT;
+
+                velocity.y = -420;
+                if (!isDashing) velocity.x = jumpVx;
+
                 onGround = false;
+
+                if (jumpVx < 0.f) facingRight = false;
+                else if (jumpVx > 0.f) facingRight = true;
             }
         }
 
@@ -359,7 +374,6 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
 
     shape.setPosition(nextPos);
 
-    // если режим ограничен и игрок на земле — восстановить возможность даша
     if (limitedDashMode && onGround) {
         dashAvailable = true;
     }

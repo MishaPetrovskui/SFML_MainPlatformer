@@ -48,7 +48,7 @@ Player::Player(sf::Texture _tx, float startX, float startY) : texture(_tx), spri
     onGround = false;
     isSliding = false;
     wallDirection = 0;
-    maxStamina = 1000.f;
+    maxStamina = 175.f;
     stamina = maxStamina;
     staminaConsumption = 30.f;
     staminaRegenRate = 20.f;

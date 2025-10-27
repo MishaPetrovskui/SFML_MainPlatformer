@@ -348,7 +348,7 @@ void DrawMenuButton(RenderWindow& window, const FloatRect& rect, const string& t
 void DrawMainMenu(RenderWindow& window, Font& font, Vector2i mousePos) {
     window.setView(window.getDefaultView());
 
-    Text title(font, "PLATFORMER", 64);
+    Text title(font, "PIXELRUN", 64);
     title.setFillColor(Color::White);
     title.setStyle(Text::Bold);
     FloatRect titleBounds = title.getLocalBounds();
@@ -489,11 +489,11 @@ void DrawSettingsMenu(RenderWindow& window, Font& font, Vector2i mousePos, Keybo
     window.draw(title);
 
     string keyText = "KEY OF ATTACK: " + keyToString(attackKey);
-    FloatRect remapRect({ 450.f, 250.f }, { 300.f, 50.f });
+    FloatRect remapRect({ 450.f-90.f, 250.f }, { 480.f, 50.f });
     DrawMenuButton(window, remapRect, keyText, font, remapRect.contains(Vector2f(mousePos)));
 
     string dashText = "DASH MODE: " + string(limitedDash ? "LIMITED" : "UNLIMITED");
-    FloatRect dashRect({ 450.f, 320.f }, { 300.f, 50.f });
+    FloatRect dashRect({ 450.f-90.f , 320.f }, { 480.f, 50.f });
     DrawMenuButton(window, dashRect, dashText, font, dashRect.contains(Vector2f(mousePos)));
 
     FloatRect backRect({ 450.f, 510.f }, { 300.f, 50.f });
@@ -810,7 +810,7 @@ int main()
         return -1;
     }
 
-    RenderWindow window(VideoMode({ 1200, 800 }), "Platformer Game");
+    RenderWindow window(VideoMode({ 1200, 800 }), "PIXELRUN Game");
     Texture tx_Player("Sprites/AnimationSheet_Character.png");
     Player player(tx_Player, 100.f, 100.f);
     Clock clock;

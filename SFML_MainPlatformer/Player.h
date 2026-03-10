@@ -43,7 +43,10 @@ private:
     float spikeInvulDuration;
     int spikeDamage;
     bool wasOnSpike;
+    float damageFlashTimer = 0.f;
+    static constexpr float DAMAGE_FLASH_DURATION = 0.25f;
     sf::Keyboard::Key attackKey;
+    sf::Vector2f attackDir = { 1.f, 0.f };
     string currentAnimation;
     int animationFrame;
     float animationTimer;
@@ -52,9 +55,18 @@ private:
     bool hasKey;
     bool deathAnimationFinished;
 
-    // Новый функционал для ограничения даша
-    bool limitedDashMode; // если true — только один даш в воздухе, восстанавливается при касании земли
-    bool dashAvailable;   // доступен ли даш (для limitedDashMode)
+    bool limitedDashMode;
+    bool dashAvailable;
+    bool  jumpHeld;
+    float coyoteTimer;
+    float jumpBufferTimer;
+    float wallJumpLockTimer;
+    static constexpr float COYOTE_TIME = 0.12f;
+    static constexpr float JUMP_BUFFER_TIME = 0.15f;
+    static constexpr float WALL_JUMP_LOCK_TIME = 0.22f;
+    static constexpr float JUMP_VELOCITY = 420.f;
+    static constexpr float JUMP_CUT_VELOCITY = 170.f;
+    static constexpr float LEDGE_FORGIVENESS = 5.f;
 
     map<string, vector<IntRect>> animation = {
         {
@@ -125,18 +137,19 @@ private:
     bool checkWallContact(int map[][501], int mapWidth, int mapHeight, float tileSize);
     void updateAnimation(float dt);
     void setAnimation(const string& animName);
+    sf::FloatRect getInnerBounds() const;
 
 public:
     Player(Texture, float startX = 50.f, float startY = 50.f);
     void update(float dt, int map[][501], int mapWidth, int mapHeight, float tileSize, sf::View& view1, sf::RenderWindow& window,
         int mobMap[][501], int interestingMap[][501], int backgroundMap[][501], std::vector<Enemy>& enemies);
-    void draw(sf::RenderWindow& window, sf::View& view1, sf::Font& font);
+    void draw(sf::RenderWindow& window, sf::View& view1, sf::Font& font, bool debugMode = false);
     sf::Vector2f getPosition() const { return shape.getPosition(); }
     int getPositionX() const { return static_cast<int>(shape.getPosition().x); }
     int getPositionY() const { return static_cast<int>(shape.getPosition().y); }
     void reset();
     bool isAlive() const { return hp > 0; }
-    void applyDamage(int dmg) { hp -= dmg; if (hp < 0) hp = 0; }
+    void applyDamage(int dmg) { hp -= dmg; if (hp < 0) hp = 0; damageFlashTimer = DAMAGE_FLASH_DURATION; }
     int getHP() const { return hp; }
     int getCoins() const { return coins; }
     float getStamina() const { return stamina; }
@@ -146,8 +159,6 @@ public:
     bool hasFinishedDeathAnimation() const { return deathAnimationFinished; }
     bool getHasKey() const { return hasKey; }
     void setSpawnPoint(float x, float y);
-
-    // управление режимом даша
     void setLimitedDashMode(bool v) { limitedDashMode = v; if (!limitedDashMode) dashAvailable = true; }
     bool getLimitedDashMode() const { return limitedDashMode; }
 };

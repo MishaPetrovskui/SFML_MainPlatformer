@@ -32,12 +32,14 @@ enum GameState {
     CREATORS_MENU,
     SETTINGS_MENU,
     PLAYING,
+    PAUSED,
     GAME_OVER,
     BEST_TIMES_MENU
 };
 
 int currentLevel = 1;
-bool limitedDashMode = false; // false = неограниченные деши, true = один деш с перезарядкой
+bool debugMode = false;
+bool limitedDashMode = false;
 
 struct LevelRecord {
     int level;
@@ -616,6 +618,32 @@ void drawGameOver(RenderWindow& window, Font& font) {
     window.draw(menuText);
 }
 
+void DrawPauseMenu(RenderWindow& window, Font& font, Vector2i mousePos) {
+    window.setView(window.getDefaultView());
+
+    RectangleShape overlay({ 1200.f, 800.f });
+    overlay.setFillColor(Color(0, 0, 0, 160));
+    window.draw(overlay);
+
+    Text title(font, "PAUSED", 72);
+    title.setFillColor(Color::White);
+    FloatRect tb = title.getLocalBounds();
+    title.setPosition({ (1200.f - tb.size.x) / 2.f, 200.f });
+    window.draw(title);
+
+    FloatRect resumeRect({ 450.f, 350.f }, { 300.f, 50.f });
+    DrawMenuButton(window, resumeRect, "RESUME", font, resumeRect.contains(Vector2f(mousePos)));
+
+    FloatRect menuRect({ 450.f, 420.f }, { 300.f, 50.f });
+    DrawMenuButton(window, menuRect, "MAIN MENU", font, menuRect.contains(Vector2f(mousePos)));
+
+    Text hint(font, "F3 = debug mode", 18);
+    hint.setFillColor(Color(150, 150, 150));
+    FloatRect hb = hint.getLocalBounds();
+    hint.setPosition({ (1200.f - hb.size.x) / 2.f, 510.f });
+    window.draw(hint);
+}
+
 void drawEndInfo(RenderWindow& window, Font& font, float finalTime, int coins, int kills, bool completed, int levelNum) {
     View menuView = window.getDefaultView();
     window.setView(menuView);
@@ -847,8 +875,12 @@ int main()
 
                 if (keyEvent->code == Keyboard::Key::Escape) {
                     if (gameState == PLAYING) {
-                        gameState = MAIN_MENU;
-                        player.reset();
+                        //gameState = MAIN_MENU;
+                        //player.reset();
+                        gameState = PAUSED;
+                    }
+                    else if (gameState == PAUSED) {
+                        gameState = PLAYING;
                     }
                     else if (gameState == GAME_OVER) {
                         levelCompleted = false;
@@ -865,7 +897,8 @@ int main()
                         window.close();
                     }
                 }
-
+                if (keyEvent->code == Keyboard::Key::F3)
+                    debugMode = !debugMode;
                 if (keyEvent->code == Keyboard::Key::Enter) {
                     if (gameState == GAME_OVER) {
                         gameState = PLAYING;
@@ -949,8 +982,8 @@ int main()
                     if (back.contains(mouse)) gameState = MAIN_MENU;
                 }
                 else if (gameState == SETTINGS_MENU) {
-                    FloatRect remap({ 450.f, 250.f }, { 300.f, 50.f });
-                    FloatRect dashToggle({ 450.f, 320.f }, { 300.f, 50.f });
+                    FloatRect remap({ 450.f - 90.f, 250.f }, { 480.f, 50.f });
+                    FloatRect dashToggle({ 450.f - 90.f , 320.f }, { 480.f, 50.f });
                     FloatRect back({ 450.f, 510.f }, { 300.f, 50.f });
 
                     if (remap.contains(mouse)) {
@@ -961,6 +994,16 @@ int main()
                     }
                     else if (back.contains(mouse)) {
                         gameState = MAIN_MENU;
+                    }
+                }
+                else if (gameState == PAUSED) {
+                    FloatRect resume({ 450.f, 350.f }, { 300.f, 50.f });
+                    FloatRect toMenu({ 450.f, 420.f }, { 300.f, 50.f });
+                    if (resume.contains(mouse))
+                        gameState = PLAYING;
+                    else if (toMenu.contains(mouse)) {
+                        gameState = MAIN_MENU;
+                        player.reset();
                     }
                 }
             }
@@ -1017,6 +1060,7 @@ int main()
                     view1.setCenter(viewCenter);
                 }
             }
+            else if (gameState == PAUSED);
             else {
                 enterTimer -= dt;
                 float progress = 1.f - std::max(0.f, enterTimer) / ENTER_DURATION;
@@ -1107,10 +1151,38 @@ int main()
             drawMob(window, spriteSheet);
             drawInteresting(window, spriteSheet);
 
-            for (auto& e : enemies) e.draw(window);
+            for (auto& e : enemies) e.draw(window, debugMode);
 
             player.draw(window, view1, font);
+            if (debugMode) {
+                Vector2f tl = view1.getCenter() - view1.getSize() / 2.f;
+                Vector2f br = view1.getCenter() + view1.getSize() / 2.f;
+                int sx = max(0, (int)(tl.x / TileSize));
+                int sy = max(0, (int)(tl.y / TileSize));
+                int ex = min(MAP_WIDTH, (int)(br.x / TileSize) + 2);
+                int ey = min(MAP_HEIGHT, (int)(br.y / TileSize) + 2);
+                for (int y = sy; y < ey; ++y)
+                    for (int x = sx; x < ex; ++x)
+                        if (MAP[y][x] > 0 && MAP[y][x] != -1) {
+                            RectangleShape dbgTile({ TileSize - 1.f, TileSize - 1.f });
+                            dbgTile.setPosition({ x * TileSize, y * TileSize });
+                            dbgTile.setFillColor(Color::Transparent);
+                            dbgTile.setOutlineColor(Color(0, 255, 100, 80));
+                            dbgTile.setOutlineThickness(1.f);
+                            window.draw(dbgTile);
+                        }
+            }
             DrawHUD(window, font, player, time, currentLevel);
+        }
+        if (gameState == PAUSED) {
+            window.setView(view1);
+            drawBg(window, spriteSheet);
+            drawMap(window, spriteSheet);
+            drawMob(window, spriteSheet);
+            drawInteresting(window, spriteSheet);
+            for (auto& e : enemies) e.draw(window, debugMode);
+            player.draw(window, view1, font, debugMode);
+            DrawPauseMenu(window, font, mousePos);
         }
         else if (gameState == GAME_OVER) {
             player.update(dt, MAP, MAP_WIDTH, MAP_HEIGHT, TileSize, view1, window, MobMAP, InterestingMAP, BackgroundMAP, enemies);

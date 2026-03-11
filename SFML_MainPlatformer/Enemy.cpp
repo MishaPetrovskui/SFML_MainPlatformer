@@ -32,15 +32,13 @@ Enemy::Enemy(float x, float y, sf::Texture& texture, float tileSize)
     facingDir = 1;
     visionAngleCos = std::cos(55.f * 3.14159265f / 180.f);
 
-    // Патруль
     patrolTimer = 0.f;
-    patrolWaitTime = 1.5f + (std::rand() % 100) / 50.f;  // 1.5–3.5s стоим
-    patrolWalkTime = 1.0f + (std::rand() % 100) / 50.f;  // 1–3s идём
+    patrolWaitTime = 1.5f + (std::rand() % 100) / 50.f;
+    patrolWalkTime = 1.0f + (std::rand() % 100) / 50.f;
     patrolPhaseTimer = patrolWalkTime;
     patrolWalking = true;
     patrolDir = (std::rand() % 2 == 0) ? 1.f : -1.f;
 
-    // Осмотр
     lookTimer = 2.f + (std::rand() % 100) / 33.f;
     lookInterval = 3.f + (std::rand() % 100) / 25.f;
     isLooking = false;
@@ -80,7 +78,6 @@ void Enemy::update(float dt, const sf::Vector2f& playerPos,
     float spriteW = sprite.getGlobalBounds().size.x;
     float spriteH = sprite.getGlobalBounds().size.y;
 
-    // ── Гравитация ──────────────────────────────────────────────
     velocityY += gravity * dt;
     float tentativeY = pos.y + velocityY * dt;
     int leftTile = std::max(0, (int)std::floor(pos.x / tileSize));
@@ -103,25 +100,21 @@ void Enemy::update(float dt, const sf::Vector2f& playerPos,
     }
     if (!onGround) pos.y = tentativeY;
 
-    // Респавн при падении
     if (pos.y > spawnPos.y + tileSize * 6.f) {
         pos = spawnPos; velocityY = 0.f;
         hp = maxHp; state = EnemyState::Idle; contactTimer = 0.f;
         sprite.setPosition(pos); return;
     }
 
-    // ── Определение видимости игрока ─────────────────────────────
     float dx = playerPos.x - (pos.x + spriteW * 0.5f);
     float dy = playerPos.y - (pos.y + spriteH * 0.5f);
     float dist = std::sqrt(dx * dx + dy * dy);
 
     bool playerDetected = false;
 
-    // 1) Ближняя зона — всегда замечает
     if (dist <= closeDetectRadius) {
         playerDetected = true;
     }
-    // 2) Конус зрения
     else if (dist <= detectionRange && std::abs(dy) <= verticalDetectRange) {
         float ndx = dx / dist;
         float dot = ndx * (float)facingDir;
@@ -129,7 +122,6 @@ void Enemy::update(float dt, const sf::Vector2f& playerPos,
             playerDetected = hasLineOfSight(playerPos, map, mapWidth, mapHeight, tileSize);
     }
 
-    // ── Переходы состояний ───────────────────────────────────────
     if (playerDetected) {
         state = EnemyState::Chasing;
         isLooking = false;
@@ -138,8 +130,6 @@ void Enemy::update(float dt, const sf::Vector2f& playerPos,
         if (state == EnemyState::Chasing)
             state = EnemyState::Returning;
     }
-
-    // ── Поведение по состоянию ───────────────────────────────────
     float moveX = 0.f;
 
     if (state == EnemyState::Chasing) {
@@ -158,12 +148,11 @@ void Enemy::update(float dt, const sf::Vector2f& playerPos,
         }
     }
     else if (state == EnemyState::Idle) {
-        // Осмотр по сторонам
         lookTimer -= dt;
         if (lookTimer <= 0.f && !isLooking) {
             isLooking = true;
             lookTimer = lookDuration;
-            facingDir = -facingDir;   // поворот
+            facingDir = -facingDir;
         }
         if (isLooking) {
             lookTimer -= dt;
@@ -173,7 +162,6 @@ void Enemy::update(float dt, const sf::Vector2f& playerPos,
             }
         }
 
-        // Патруль
         if (!isLooking) {
             patrolPhaseTimer -= dt;
             if (patrolPhaseTimer <= 0.f) {
@@ -186,7 +174,6 @@ void Enemy::update(float dt, const sf::Vector2f& playerPos,
             }
 
             if (patrolWalking) {
-                // Не уходим дальше patrolRange от спавна
                 float distFromSpawn = pos.x - spawnPos.x;
                 if ((patrolDir > 0.f && distFromSpawn < patrolRange) ||
                     (patrolDir < 0.f && distFromSpawn > -patrolRange)) {
@@ -200,7 +187,6 @@ void Enemy::update(float dt, const sf::Vector2f& playerPos,
                     patrolWalking = false;
                 }
 
-                // Не шагаем в пропасть
                 int nextTileX = (int)std::floor((pos.x + spriteW * 0.5f + moveX * dt + patrolDir * spriteW * 0.5f) / tileSize);
                 int belowTile = (int)std::floor((pos.y + spriteH + 2.f) / tileSize);
                 if (belowTile >= 0 && belowTile < mapHeight &&
@@ -217,7 +203,6 @@ void Enemy::update(float dt, const sf::Vector2f& playerPos,
         }
     }
 
-    // ── Горизонтальное движение + коллизия стен ──────────────────
     if (moveX != 0.f) {
         float nextX = pos.x + moveX * dt;
         int checkTileX = (moveX > 0.f)
@@ -249,7 +234,6 @@ void Enemy::draw(sf::RenderWindow& window, bool debugMode) {
     sf::FloatRect b = sprite.getGlobalBounds();
     window.draw(sprite);
 
-    // HP бар
     float barW = std::max(20.f, b.size.x);
     sf::RectangleShape bg({ barW, 6.f });
     bg.setFillColor(sf::Color(50, 50, 50, 200));
@@ -269,8 +253,7 @@ void Enemy::draw(sf::RenderWindow& window, bool debugMode) {
         b.position.y + b.size.y * 0.5f
     };
 
-    // Конус зрения
-    const int   SEG = 24;
+    const int SEG = 24;
     const float halfAngle = std::acos(visionAngleCos);
     float baseAngle = (facingDir > 0) ? 0.f : 3.14159265f;
 
@@ -280,24 +263,22 @@ void Enemy::draw(sf::RenderWindow& window, bool debugMode) {
     for (int i = 0; i <= SEG; ++i) {
         float a = baseAngle - halfAngle + (2.f * halfAngle * i / SEG);
         cone[i + 1].position = { center.x + std::cos(a) * detectionRange,
-                                  center.y + std::sin(a) * detectionRange };
+            center.y + std::sin(a) * detectionRange };
         cone[i + 1].color = sf::Color(255, 255, 0, 10);
     }
     window.draw(cone);
 
-    // Линии границ конуса
     sf::VertexArray coneLines(sf::PrimitiveType::Lines, 4);
     coneLines[0] = { center, sf::Color(255, 255, 0, 180) };
     coneLines[1] = { { center.x + std::cos(baseAngle - halfAngle) * detectionRange,
-                        center.y + std::sin(baseAngle - halfAngle) * detectionRange },
-                      sf::Color(255, 255, 0, 60) };
+        center.y + std::sin(baseAngle - halfAngle) * detectionRange },
+        sf::Color(255, 255, 0, 60) };
     coneLines[2] = { center, sf::Color(255, 255, 0, 180) };
     coneLines[3] = { { center.x + std::cos(baseAngle + halfAngle) * detectionRange,
-                        center.y + std::sin(baseAngle + halfAngle) * detectionRange },
-                      sf::Color(255, 255, 0, 60) };
+        center.y + std::sin(baseAngle + halfAngle) * detectionRange },
+        sf::Color(255, 255, 0, 60) };
     window.draw(coneLines);
 
-    // Ближняя зона (круг)
     const int CR = 20;
     sf::VertexArray circle(sf::PrimitiveType::TriangleFan, CR + 2);
     circle[0].position = center;
@@ -305,12 +286,11 @@ void Enemy::draw(sf::RenderWindow& window, bool debugMode) {
     for (int i = 0; i <= CR; ++i) {
         float a = 2.f * 3.14159265f * i / CR;
         circle[i + 1].position = { center.x + std::cos(a) * closeDetectRadius,
-                                    center.y + std::sin(a) * closeDetectRadius };
+            center.y + std::sin(a) * closeDetectRadius };
         circle[i + 1].color = sf::Color(255, 80, 80, 20);
     }
     window.draw(circle);
 
-    // Хитбокс
     sf::RectangleShape dbgBox({ b.size.x, b.size.y });
     dbgBox.setPosition(b.position);
     dbgBox.setFillColor(sf::Color::Transparent);
@@ -318,7 +298,6 @@ void Enemy::draw(sf::RenderWindow& window, bool debugMode) {
     dbgBox.setOutlineThickness(1.f);
     window.draw(dbgBox);
 
-    // Точка спавна
     sf::CircleShape spawnDot(4.f);
     spawnDot.setFillColor(sf::Color(0, 200, 255, 180));
     spawnDot.setPosition({ spawnPos.x - 4.f, spawnPos.y - 4.f });

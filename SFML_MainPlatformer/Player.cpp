@@ -14,11 +14,11 @@ static sf::FloatRect expandRect(const sf::FloatRect& r, float pad) {
 static sf::FloatRect getSpikeHitbox(float tx, float ty, float tileSize, int spikeType) {
     const float SPIKE_DEPTH = tileSize * 0.4f;
     switch (spikeType) {
-    case 18: return sf::FloatRect({ tx,                        ty + tileSize - SPIKE_DEPTH }, { tileSize,     SPIKE_DEPTH });
-    case 19: return sf::FloatRect({ tx,                        ty }, { SPIKE_DEPTH,  tileSize });
-    case 20: return sf::FloatRect({ tx + tileSize - SPIKE_DEPTH, ty }, { SPIKE_DEPTH,  tileSize });
-    case 21: return sf::FloatRect({ tx,                        ty }, { tileSize,     SPIKE_DEPTH });
-    default: return sf::FloatRect({ tx,                        ty }, { tileSize,     tileSize });
+    case 18: return sf::FloatRect({ tx, ty + tileSize - SPIKE_DEPTH }, { tileSize, SPIKE_DEPTH });
+    case 19: return sf::FloatRect({ tx, ty }, { SPIKE_DEPTH, tileSize });
+    case 20: return sf::FloatRect({ tx + tileSize - SPIKE_DEPTH, ty }, { SPIKE_DEPTH, tileSize });
+    case 21: return sf::FloatRect({ tx, ty }, { tileSize, SPIKE_DEPTH });
+    default: return sf::FloatRect({ tx, ty }, { tileSize, tileSize });
     }
 }
 
@@ -26,12 +26,10 @@ Player::Player(sf::Texture _tx, float startX, float startY) : texture(_tx), spri
     shape.setSize({ 30.f, 40.f });
     shape.setPosition({ startX, startY });
     spawnPoint = { startX, startY };
-
     sprite.setTexture(texture);
     sprite.setTextureRect(animation["idle"][0]);
     sprite.setScale({ 2.5f, 2.5f });
     sprite.setPosition({ startX, startY });
-
     velocity = { 0.f, 0.f };
     speed = 200.f;
     gravity = 900.f;
@@ -70,7 +68,6 @@ Player::Player(sf::Texture _tx, float startX, float startY) : texture(_tx), spri
     deathAnimationFinished = false;
     limitedDashMode = false;
     dashAvailable = true;
-
     jumpHeld = false;
     coyoteTimer = 0.f;
     jumpBufferTimer = 0.f;
@@ -82,8 +79,8 @@ sf::FloatRect Player::getInnerBounds() const {
     const float hShrink = 4.f;
     const float vShrink = 3.f;
     return sf::FloatRect(
-        { b.position.x + hShrink,           b.position.y + vShrink },
-        { b.size.x - hShrink * 2.f,         b.size.y - vShrink * 2.f }
+        { b.position.x + hShrink, b.position.y + vShrink },
+        { b.size.x - hShrink * 2.f, b.size.y - vShrink * 2.f }
     );
 }
 
@@ -404,7 +401,7 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
                     }
                     else {
                         if (px < tx) nextPos.x -= overlapX;
-                        else         nextPos.x += overlapX;
+                        else nextPos.x += overlapX;
                         if (!isDashing) velocity.x = 0.f;
                         px = nextPos.x;
                     }
@@ -456,9 +453,9 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
   //  }
     if (currentAnimation == "Attack") {
         if (animationFrame >= (int)animation["Attack"].size() - 1 && attackTimer <= 0.f) {
-            if (!onGround)               setAnimation("Jump");
+            if (!onGround) setAnimation("Jump");
             else if (velocity.x != 0.f) setAnimation(facingRight ? "walkToRight" : "walkToLeft");
-            else                         setAnimation("idle");
+            else setAnimation("idle");
         }
     }
     else if (!onGround) {
@@ -607,14 +604,14 @@ void Player::draw(sf::RenderWindow& window, sf::View& view1, sf::Font& font, boo
             bool au = attackDir.y < 0.f;
             bool ad = attackDir.y > 0.f;
 
-            if (!ar_ && !al && au && !ad) ar = { { cx - hw,        cy - hh - vertRange }, { pBounds.size.x, vertRange       } };
-            else if (!ar_ && !al && !au && ad) ar = { { cx - hw,        cy + hh             }, { pBounds.size.x, vertRange       } };
-            else if (ar_ && !al && au && !ad) ar = { { cx,             cy - hh - vertRange }, { sideRange,      vertRange + hh  } };
-            else if (!ar_ && al && au && !ad) ar = { { cx - sideRange, cy - hh - vertRange }, { sideRange,      vertRange + hh  } };
-            else if (ar_ && !al && !au && ad) ar = { { cx,             cy                  }, { sideRange,      hh + vertRange  } };
-            else if (!ar_ && al && !au && ad) ar = { { cx - sideRange, cy                  }, { sideRange,      hh + vertRange  } };
-            else if (ar_)                      ar = { { cx,             cy - hh             }, { sideRange,      pBounds.size.y  } };
-            else                                ar = { { cx - sideRange, cy - hh             }, { sideRange,      pBounds.size.y  } };
+            if (!ar_ && !al && au && !ad) ar = { { cx - hw, cy - hh - vertRange }, { pBounds.size.x, vertRange } };
+            else if (!ar_ && !al && !au && ad) ar = { { cx - hw, cy + hh }, { pBounds.size.x, vertRange } };
+            else if (ar_ && !al && au && !ad) ar = { { cx, cy - hh - vertRange }, { sideRange, vertRange + hh } };
+            else if (!ar_ && al && au && !ad) ar = { { cx - sideRange, cy - hh - vertRange }, { sideRange, vertRange + hh } };
+            else if (ar_ && !al && !au && ad) ar = { { cx, cy }, { sideRange, hh + vertRange } };
+            else if (!ar_ && al && !au && ad) ar = { { cx - sideRange, cy }, { sideRange, hh + vertRange } };
+            else if (ar_) ar = { { cx, cy - hh }, { sideRange, pBounds.size.y } };
+            else ar = { { cx - sideRange, cy - hh }, { sideRange, pBounds.size.y  } };
 
             sf::RectangleShape dbgAtk({ ar.size.x, ar.size.y });
             dbgAtk.setPosition(ar.position);

@@ -840,7 +840,9 @@ int main()
 
     RenderWindow window(VideoMode({ 1200, 800 }), "PIXELRUN Game");
     Texture tx_Player("Sprites/AnimationSheet_Character.png");
-    Player player(tx_Player, 100.f, 100.f);
+    Texture tx_Player2("Sprites/Knight_runningMain1.png");
+    
+    Player player(tx_Player2, 100.f, 100.f);
     Clock clock;
     GameState gameState = MAIN_MENU;
 

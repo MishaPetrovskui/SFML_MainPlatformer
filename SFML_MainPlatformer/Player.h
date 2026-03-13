@@ -13,7 +13,7 @@ class Player {
 private:
     sf::RectangleShape shape;
     sf::Sprite sprite;
-    sf::Texture texture;
+    sf::Texture texture;       // legacy / fallback single-sheet
     sf::Vector2f velocity;
     float speed;
     float gravity;
@@ -38,13 +38,16 @@ private:
     float attackCooldown;
     float attackTimer;
     int attackDamage;
+    bool attackHitDealt = false;  // true after hit frame processed
     float lavaDamageAccum;
     float spikeInvulTimer;
     float spikeInvulDuration;
     int spikeDamage;
     bool wasOnSpike;
     float damageFlashTimer = 0.f;
+    float hitFreezeTimer = 0.f;
     static constexpr float DAMAGE_FLASH_DURATION = 0.25f;
+    static constexpr float HIT_FREEZE_DURATION = 0.15f;
     sf::Keyboard::Key attackKey;
     sf::Vector2f attackDir = { 1.f, 0.f };
     string currentAnimation;
@@ -67,72 +70,12 @@ private:
     static constexpr float JUMP_VELOCITY = 420.f;
     static constexpr float JUMP_CUT_VELOCITY = 170.f;
     static constexpr float LEDGE_FORGIVENESS = 5.f;
-
-    map<string, vector<IntRect>> animation = {
-        {
-            "idle", {
-                IntRect({7, 4}, {16, 28}),
-                IntRect({39, 4}, {16, 28}),
-            }
-        },
-        {
-            "walkToRight", {
-                IntRect({6, 103}, {17, 25}),
-                IntRect({39, 102}, {16, 26}),
-                IntRect({71, 100}, {16, 28}),
-                IntRect({103, 101}, {16, 27}),
-                IntRect({103, 101}, {16, 27}),
-                IntRect({167, 102}, {16, 26}),
-                IntRect({199, 100}, {16, 28}),
-                IntRect({231, 101}, {16, 27}),
-            }
-        },
-        {
-            "walkToLeft", {
-                IntRect({6, 103}, {17, 25}),
-                IntRect({39, 102}, {16, 26}),
-                IntRect({71, 100}, {16, 28}),
-                IntRect({103, 101}, {16, 27}),
-                IntRect({103, 101}, {16, 27}),
-                IntRect({167, 102}, {16, 26}),
-                IntRect({199, 100}, {16, 28}),
-                IntRect({231, 101}, {16, 27}),
-            }
-        },
-        {
-            "Death",{
-                IntRect({7, 228}, {16, 28}),
-                IntRect({37, 229}, {18, 27}),
-                IntRect({70, 231}, {17, 25}),
-                IntRect({103, 233}, {17, 24}),
-                IntRect({135, 239}, {21, 17}),
-                IntRect({162, 244}, {29, 12}),
-                IntRect({194, 245}, {29, 11}),
-                IntRect({226, 245}, {29, 11}),
-            }
-        },
-        {
-            "Attack",{
-                IntRect({102, 257}, {19, 31}),
-                IntRect({134, 257}, {16, 31}),
-                IntRect({166, 264}, {19, 24}),
-                IntRect({197, 262}, {18, 26}),
-                IntRect({231, 260}, {16, 28}),
-            }
-        },
-        {
-             "Jump", {
-                  IntRect({7, 164}, {16, 28}),
-                  IntRect({38, 164}, {18, 28}),
-                  IntRect({70, 162}, {18, 28}),
-                  IntRect({102, 161}, {18, 28}),
-                  IntRect({134, 161}, {19, 28}),
-                  IntRect({166, 164}, {19, 28}),
-                  IntRect({197, 164}, {19, 28}),
-                  IntRect({230, 164}, {18, 28}),
-             }
-        },
+    // Новая система анимаций — каждая анимация хранит свою текстуру и фреймы
+    struct Animation {
+        sf::Texture texture;
+        std::vector<sf::IntRect> frames;
     };
+    map<string, Animation> animations;
 
     bool checkWallContact(int map[][501], int mapWidth, int mapHeight, float tileSize);
     void updateAnimation(float dt);
@@ -141,9 +84,12 @@ private:
 
 public:
     Player(Texture, float startX = 50.f, float startY = 50.f);
+    void loadAnimationSheets(const std::string& walkPath,
+        const std::string& attackPath,
+        const std::string& idlePath);
     void update(float dt, int map[][501], int mapWidth, int mapHeight, float tileSize, sf::View& view1, sf::RenderWindow& window,
         int mobMap[][501], int interestingMap[][501], int backgroundMap[][501], std::vector<Enemy>& enemies);
-    void draw(sf::RenderWindow& window, sf::View& view1, sf::Font& font, bool debugMode = false);
+    void draw(sf::RenderWindow& window, sf::View& view1, sf::Font& font, bool debugMode = false, bool pauseMode = false);
     sf::Vector2f getPosition() const { return shape.getPosition(); }
     int getPositionX() const { return static_cast<int>(shape.getPosition().x); }
     int getPositionY() const { return static_cast<int>(shape.getPosition().y); }

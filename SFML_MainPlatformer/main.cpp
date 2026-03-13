@@ -334,14 +334,14 @@ void drawInteresting(RenderWindow& window, map<int, Sprite>& spriteSheet)
 
 void DrawMenuButton(RenderWindow& window, const FloatRect& rect, const string& text, const Font& font, bool isSelected = false) {
     const float x = rect.position.x, y = rect.position.y;
-    const float w = rect.size.x,     h = rect.size.y;
+    const float w = rect.size.x, h = rect.size.y;
     const float px = 4.f;
 
-    Color cBase  = isSelected ? Color(160, 148, 120) : Color(130, 118, 95);
+    Color cBase = isSelected ? Color(160, 148, 120) : Color(130, 118, 95);
     Color cLight = isSelected ? Color(200, 190, 160) : Color(175, 163, 132);
-    Color cDark  = isSelected ? Color( 80,  72,  55) : Color( 70,  62,  45);
-    Color cShadow= Color(40, 35, 25, 180);
-    Color cCorner= Color(90, 82, 62);
+    Color cDark = isSelected ? Color(80, 72, 55) : Color(70, 62, 45);
+    Color cShadow = Color(40, 35, 25, 180);
+    Color cCorner = Color(90, 82, 62);
 
     RectangleShape shadow({ w, h });
     shadow.setPosition({ x + px, y + px });
@@ -353,22 +353,22 @@ void DrawMenuButton(RenderWindow& window, const FloatRect& rect, const string& t
     base.setFillColor(cBase);
     window.draw(base);
 
-    RectangleShape etop({ w - px*2, px });
+    RectangleShape etop({ w - px * 2, px });
     etop.setPosition({ x + px, y });
     etop.setFillColor(cLight);
     window.draw(etop);
 
-    RectangleShape eleft({ px, h - px*2 });
+    RectangleShape eleft({ px, h - px * 2 });
     eleft.setPosition({ x, y + px });
     eleft.setFillColor(cLight);
     window.draw(eleft);
 
-    RectangleShape ebot({ w - px*2, px });
+    RectangleShape ebot({ w - px * 2, px });
     ebot.setPosition({ x + px, y + h - px });
     ebot.setFillColor(cDark);
     window.draw(ebot);
 
-    RectangleShape eright({ px, h - px*2 });
+    RectangleShape eright({ px, h - px * 2 });
     eright.setPosition({ x + w - px, y + px });
     eright.setFillColor(cDark);
     window.draw(eright);
@@ -378,19 +378,19 @@ void DrawMenuButton(RenderWindow& window, const FloatRect& rect, const string& t
         p.setPosition({ px_x, px_y });
         p.setFillColor(c);
         window.draw(p);
-    };
-    drawPx(x,       y,       cCorner);
-    drawPx(x+w-px,  y,       cCorner);
-    drawPx(x,       y+h-px,  cCorner);
-    drawPx(x+w-px,  y+h-px,  cCorner);
+        };
+    drawPx(x, y, cCorner);
+    drawPx(x + w - px, y, cCorner);
+    drawPx(x, y + h - px, cCorner);
+    drawPx(x + w - px, y + h - px, cCorner);
 
     if (!isSelected) {
-        RectangleShape crack1({ px*3, px });
-        crack1.setPosition({ x + w*0.22f, y + h*0.35f });
+        RectangleShape crack1({ px * 3, px });
+        crack1.setPosition({ x + w * 0.22f, y + h * 0.35f });
         crack1.setFillColor(Color(75, 68, 50, 130));
         window.draw(crack1);
-        RectangleShape crack2({ px*2, px });
-        crack2.setPosition({ x + w*0.65f, y + h*0.62f });
+        RectangleShape crack2({ px * 2, px });
+        crack2.setPosition({ x + w * 0.65f, y + h * 0.62f });
         crack2.setFillColor(Color(75, 68, 50, 130));
         window.draw(crack2);
     }
@@ -403,7 +403,7 @@ void DrawMenuButton(RenderWindow& window, const FloatRect& rect, const string& t
     txt.setPosition({
         x + (w - bounds.size.x) / 2.f,
         y + (h - bounds.size.y) / 2.f + 7.f
-    });
+        });
     window.draw(txt);
 }
 
@@ -541,7 +541,8 @@ void DrawCreatorsMenu(RenderWindow& window, Font& font, Vector2i mousePos) {
 
     vector<string> creators = {
         "Petrovskiy Mikhailo (Dram)",
-        "Yashchenko Denis (HoWL)"
+        "Yashchenko Denis (HoWL)",
+        "Kulik Svyatoslav (ezx)",
     };
 
     float y = 300.f;
@@ -568,11 +569,11 @@ void DrawSettingsMenu(RenderWindow& window, Font& font, Vector2i mousePos, Keybo
     window.draw(title);
 
     string keyText = "KEY OF ATTACK: " + keyToString(attackKey);
-    FloatRect remapRect({ 450.f-90.f, 250.f }, { 480.f, 50.f });
+    FloatRect remapRect({ 450.f - 90.f, 250.f }, { 480.f, 50.f });
     DrawMenuButton(window, remapRect, keyText, font, remapRect.contains(Vector2f(mousePos)));
 
     string dashText = "DASH MODE: " + string(limitedDash ? "LIMITED" : "UNLIMITED");
-    FloatRect dashRect({ 450.f-90.f , 320.f }, { 480.f, 50.f });
+    FloatRect dashRect({ 450.f - 90.f , 320.f }, { 480.f, 50.f });
     DrawMenuButton(window, dashRect, dashText, font, dashRect.contains(Vector2f(mousePos)));
 
     FloatRect backRect({ 450.f, 510.f }, { 300.f, 50.f });
@@ -596,7 +597,8 @@ void DrawSettingsMenu(RenderWindow& window, Font& font, Vector2i mousePos, Keybo
 }
 
 void DrawHUD(RenderWindow& window, Font& font, const Player& player,
-    float gameTime, int levelNum, Texture& tx_HPBar, bool hasHPBar)
+    float gameTime, int levelNum, Texture& tx_HPBar, bool hasHPBar,
+    Texture& tx_StaminaBar, bool hasStaminaBar)
 {
     View gameView = window.getView();
     window.setView(window.getDefaultView());
@@ -615,10 +617,11 @@ void DrawHUD(RenderWindow& window, Font& font, const Player& player,
     levelText.setOutlineThickness(1.f);
     levelText.setPosition({ 20.f, 10.f });
     window.draw(levelText);
-    const float BAR_W = 520.f;
-    const float BAR_H = BAR_W * (200.f / 1000.f);
+    const float BAR_W = 380.f;
+    const float BAR_H = BAR_W * (200.f / 1000.f);   // 76px
     const float BAR_X = 10.f;
-    const float BAR_Y = 800.f - BAR_H - 20.f;
+    const float STA_BAR_Y = 800.f - BAR_H - 6.f;    // stamina bar — near bottom
+    const float BAR_Y = STA_BAR_Y - BAR_H - 4.f;    // HP bar — directly above stamina
 
     float scaleX = BAR_W / 1000.f;
     float scaleY = BAR_H / 200.f;
@@ -642,14 +645,14 @@ void DrawHUD(RenderWindow& window, Font& font, const Player& player,
     window.draw(emptyFill);
 
     const float PAD = 2.f;
-    float barW = (fillW - PAD*2) * hpRatio;
+    float barW = (fillW - PAD * 2) * hpRatio;
 
     {
         float emptyStartX = fillX + PAD + barW;
-        float emptyPartW  = (fillW - PAD*2) * (1.f - hpRatio);
+        float emptyPartW = (fillW - PAD * 2) * (1.f - hpRatio);
         if (emptyPartW > 0.f) {
-            Color maroon = (hpRatio > 0.3f) ? Color(50,0,8,255) : Color(80,0,12,255);
-            RectangleShape ep({ emptyPartW, fillH - PAD*2 });
+            Color maroon = (hpRatio > 0.3f) ? Color(50, 0, 8, 255) : Color(80, 0, 12, 255);
+            RectangleShape ep({ emptyPartW, fillH - PAD * 2 });
             ep.setPosition({ emptyStartX, fillY + PAD });
             ep.setFillColor(maroon);
             window.draw(ep);
@@ -660,21 +663,23 @@ void DrawHUD(RenderWindow& window, Font& font, const Player& player,
         Color fillColor;
         if (hpRatio > 0.6f) {
             fillColor = Color(180, 20, 20, 255);
-        } else if (hpRatio > 0.3f) {
-            float t = (hpRatio - 0.3f) / 0.3f;
-            fillColor = Color((uint8_t)(180+(1.f-t)*30),(uint8_t)(20+(1.f-t)*60),10,255);
-        } else {
-            float t = hpRatio / 0.3f;
-            fillColor = Color((uint8_t)(90+t*120),(uint8_t)(t*80),10,255);
         }
-        RectangleShape fill({ barW, fillH - PAD*2 });
+        else if (hpRatio > 0.3f) {
+            float t = (hpRatio - 0.3f) / 0.3f;
+            fillColor = Color((uint8_t)(180 + (1.f - t) * 30), (uint8_t)(20 + (1.f - t) * 60), 10, 255);
+        }
+        else {
+            float t = hpRatio / 0.3f;
+            fillColor = Color((uint8_t)(90 + t * 120), (uint8_t)(t * 80), 10, 255);
+        }
+        RectangleShape fill({ barW, fillH - PAD * 2 });
         fill.setPosition({ fillX + PAD, fillY + PAD });
         fill.setFillColor(fillColor);
         window.draw(fill);
 
-        RectangleShape shine({ barW, (fillH-PAD*2)*0.25f });
+        RectangleShape shine({ barW, (fillH - PAD * 2) * 0.25f });
         shine.setPosition({ fillX + PAD, fillY + PAD });
-        shine.setFillColor(Color(255,100,100,60));
+        shine.setFillColor(Color(255, 100, 100, 60));
         window.draw(shine);
     }
 
@@ -693,21 +698,47 @@ void DrawHUD(RenderWindow& window, Font& font, const Player& player,
     //hpText.setOutlineThickness(1.f);
     //window.draw(hpText);
 
-    const float STA_Y = BAR_Y + BAR_H + 4.f;
-    const float STA_H = 6.f;
+    // --- Stamina bar — same size as HP bar, directly below it ---
+    // mama 2.png inner fill: x=98..967 (w=869), y=47..149 (h=102)
+    const float MAMA_INNER_X = 98.f, MAMA_INNER_W = 869.f;
+    const float MAMA_INNER_Y = 47.f, MAMA_INNER_H = 102.f;
 
-    RectangleShape staBg({ fillW, STA_H });
-    staBg.setPosition({ fillX, STA_Y });
-    staBg.setFillColor(Color(0, 30, 0, 200));
-    window.draw(staBg);
+    // mama 2.png drawn at SAME size as hp_bar (BAR_W x BAR_H, same scaleX/scaleY)
+    // Fill area inside mama2 at same relative position as hp_bar fill
+    float staFillX = BAR_X + IMG_FILL_X * scaleX;
+    float staFillY = STA_BAR_Y + IMG_FILL_Y * scaleY;
 
     float staRatio = player.getStamina() / player.getMaxStamina();
     staRatio = std::max(0.f, std::min(1.f, staRatio));
+
+    // 1) Dark background inside frame
+    RectangleShape staBg({ fillW, fillH });
+    staBg.setPosition({ staFillX, staFillY });
+    staBg.setFillColor(Color(0, 20, 0, 255));
+    window.draw(staBg);
+
+    // 2) Green fill
     if (staRatio > 0.f) {
-        RectangleShape staFill({ fillW * staRatio, STA_H });
-        staFill.setPosition({ fillX, STA_Y });
-        staFill.setFillColor(Color(40, 200, 40));
+        Color staColor = (staRatio > 0.5f) ? Color(40, 210, 60) :
+            (staRatio > 0.25f) ? Color(150, 210, 30) :
+            Color(210, 170, 15);
+        RectangleShape staFill({ (fillW - PAD * 2) * staRatio, fillH - PAD * 2 });
+        staFill.setPosition({ staFillX + PAD, staFillY + PAD });
+        staFill.setFillColor(staColor);
         window.draw(staFill);
+
+        RectangleShape staShine({ (fillW - PAD * 2) * staRatio, (fillH - PAD * 2) * 0.25f });
+        staShine.setPosition({ staFillX + PAD, staFillY + PAD });
+        staShine.setFillColor(Color(180, 255, 180, 60));
+        window.draw(staShine);
+    }
+
+    // 3) mama 2.png — same size as hp_bar (BAR_W x BAR_H, scaleX x scaleY)
+    if (hasStaminaBar) {
+        Sprite staSprite(tx_StaminaBar);
+        staSprite.setPosition({ BAR_X, STA_BAR_Y });
+        staSprite.setScale({ scaleX, scaleY });
+        window.draw(staSprite);
     }
 
     Text coinsText(font, "Coins: " + to_string(player.getCoins()), 20);
@@ -899,9 +930,9 @@ void DrawInputBox(RenderWindow& window, const Font& font,
     bool active, bool masked = false)
 {
     const float px = 3.f;
-    Color cBase   = active ? Color(100, 90, 68)  : Color(75, 67, 50);
-    Color cLight  = active ? Color(150, 138, 108) : Color(110, 100, 76);
-    Color cDark   = Color(45, 40, 28);
+    Color cBase = active ? Color(100, 90, 68) : Color(75, 67, 50);
+    Color cLight = active ? Color(150, 138, 108) : Color(110, 100, 76);
+    Color cDark = Color(45, 40, 28);
     Color cCorner = Color(55, 48, 34);
 
     RectangleShape shadow({ bw, bh });
@@ -914,21 +945,21 @@ void DrawInputBox(RenderWindow& window, const Font& font,
     base.setFillColor(cBase);
     window.draw(base);
 
-    RectangleShape etop({ bw - px*2, px });
+    RectangleShape etop({ bw - px * 2, px });
     etop.setPosition({ bx + px, by }); etop.setFillColor(cDark); window.draw(etop);
-    RectangleShape eleft({ px, bh - px*2 });
+    RectangleShape eleft({ px, bh - px * 2 });
     eleft.setPosition({ bx, by + px }); eleft.setFillColor(cDark); window.draw(eleft);
-    RectangleShape ebot({ bw - px*2, px });
+    RectangleShape ebot({ bw - px * 2, px });
     ebot.setPosition({ bx + px, by + bh - px }); ebot.setFillColor(cLight); window.draw(ebot);
-    RectangleShape eright({ px, bh - px*2 });
+    RectangleShape eright({ px, bh - px * 2 });
     eright.setPosition({ bx + bw - px, by + px }); eright.setFillColor(cLight); window.draw(eright);
 
     auto drawPx = [&](float cx, float cy) {
         RectangleShape p({ px, px }); p.setPosition({ cx, cy });
         p.setFillColor(cCorner); window.draw(p);
-    };
-    drawPx(bx, by); drawPx(bx+bw-px, by);
-    drawPx(bx, by+bh-px); drawPx(bx+bw-px, by+bh-px);
+        };
+    drawPx(bx, by); drawPx(bx + bw - px, by);
+    drawPx(bx, by + bh - px); drawPx(bx + bw - px, by + bh - px);
 
     const float padding = 10.f;
     const float maxW = bw - padding * 2;
@@ -936,10 +967,12 @@ void DrawInputBox(RenderWindow& window, const Font& font,
     std::string display;
     if (isEmpty) {
         display = placeholder;
-    } else if (masked) {
+    }
+    else if (masked) {
         display = std::string(value.size(), '*');
         display = FitTextToWidth(font, display, 20, maxW);
-    } else {
+    }
+    else {
         display = FitTextToWidth(font, value, 20, maxW);
     }
 
@@ -952,8 +985,8 @@ void DrawInputBox(RenderWindow& window, const Font& font,
 
     if (active) {
         float cursorX = bx + padding + (isEmpty ? 0.f : txt.getLocalBounds().size.x + 2.f);
-        RectangleShape cursor({ 2.f, bh - px*4 });
-        cursor.setPosition({ cursorX, by + px*2 });
+        RectangleShape cursor({ 2.f, bh - px * 4 });
+        cursor.setPosition({ cursorX, by + px * 2 });
         cursor.setFillColor(Color(240, 228, 190, 200));
         window.draw(cursor);
     }
@@ -974,7 +1007,7 @@ void DrawLoginMenu(RenderWindow& window, Font& font, Vector2i mousePos,
     window.draw(title);
 
     const float boxW = 400.f, boxH = 46.f, boxX = 400.f;
-    DrawInputBox(window, font, boxX, 210.f, boxW, boxH, email,    "Email...",    emailActive,    false);
+    DrawInputBox(window, font, boxX, 210.f, boxW, boxH, email, "Email...", emailActive, false);
     DrawInputBox(window, font, boxX, 276.f, boxW, boxH, password, "Password...", passwordActive, true);
 
     FloatRect loginBtn({ 400.f, 350.f }, { 190.f, 48.f });
@@ -1110,10 +1143,10 @@ void DrawShopMenu(RenderWindow& window, Font& font, Vector2i mousePos,
             RectangleShape card({ colW, 70.f });
             card.setPosition({ colX[t], y });
             sf::Color cardColor = s.equipped ? Color(0, 80, 0, 200)
-                                : s.owned    ? Color(0, 40, 80, 200)
-                                             : Color(40, 40, 60, 200);
+                : s.owned ? Color(0, 40, 80, 200)
+                : Color(40, 40, 60, 200);
             card.setFillColor(cardColor);
-            card.setOutlineColor(s.equipped ? Color::Green : Color(100,100,100));
+            card.setOutlineColor(s.equipped ? Color::Green : Color(100, 100, 100));
             card.setOutlineThickness(s.equipped ? 2.f : 1.f);
             window.draw(card);
 
@@ -1127,10 +1160,12 @@ void DrawShopMenu(RenderWindow& window, Font& font, Vector2i mousePos,
                 eq.setFillColor(Color::Green);
                 eq.setPosition({ colX[t] + 8.f, y + 32.f });
                 window.draw(eq);
-            } else if (s.owned) {
+            }
+            else if (s.owned) {
                 FloatRect equipBtn({ colX[t] + colW - 100.f, y + 18.f }, { 88.f, 34.f });
                 DrawMenuButton(window, equipBtn, "EQUIP", font, equipBtn.contains(Vector2f(mousePos)));
-            } else {
+            }
+            else {
                 Text price(font, std::to_string(s.price) + " coins", 14);
                 price.setFillColor(Color::Yellow);
                 price.setPosition({ colX[t] + 8.f, y + 32.f });
@@ -1188,7 +1223,7 @@ int main()
     Texture tx_GreenBricks, tx_GreenBricksBG, tx_GreenGrass;
     Texture tx_Lava, tx_LavaTop, tx_Spikes, tx_SpikesLeft;
     Texture tx_SpikesRight, tx_SpikesTop, tx_Key, tx_BluePortal;
-    Texture tx_OrangePortal, tx_HPBar;
+    Texture tx_OrangePortal, tx_HPBar, tx_StaminaBar;
 
     tx_Undefined.loadFromFile("Sprites/Undefined.png");
     tx_Dirt.loadFromFile("Sprites/Dirt.png");
@@ -1243,6 +1278,7 @@ int main()
     };
 
     bool hasHPBar = tx_HPBar.loadFromFile("Sprites/hp_bar.png");
+    bool hasStaminaBar = tx_StaminaBar.loadFromFile("Sprites/mama 2.png");
 
     std::vector<Enemy> enemies;
     for (auto& t : mobTemplate) {
@@ -1262,6 +1298,11 @@ int main()
     RenderWindow window(VideoMode({ 1200, 800 }), "PIXELRUN Game");
     Texture tx_Player("Sprites/AnimationSheet_Character.png");
     Player player(tx_Player, 100.f, 100.f);
+    player.loadAnimationSheets(
+        "Sprites/player_walk.png",
+        "Sprites/player_attack.png",
+        "Sprites/player_idle.png"
+    );
     Clock clock;
     GameState gameState = MAIN_MENU;
 
@@ -1348,15 +1389,15 @@ int main()
                     const float btnW = 240.f, btnH = 52.f, gap = 14.f;
                     const float col1X = 270.f, col2X = 690.f, startY = 250.f;
 
-                    FloatRect levels  ({ col1X, startY },                    { btnW, btnH });
-                    FloatRect shop    ({ col1X, startY + (btnH+gap) },       { btnW, btnH });
-                    FloatRect loginBtn({ col1X, startY + (btnH+gap)*2 },     { btnW, btnH });
-                    FloatRect creators({ col2X, startY },                    { btnW, btnH });
-                    FloatRect settings({ col2X, startY + (btnH+gap) },       { btnW, btnH });
-                    FloatRect questsBtn({col2X, startY + (btnH+gap)*2 },     { btnW, btnH });
-                    FloatRect exitBtn ({ (1200.f-200.f)/2.f, startY+(btnH+gap)*3+10.f }, { 200.f, 44.f });
+                    FloatRect levels({ col1X, startY }, { btnW, btnH });
+                    FloatRect shop({ col1X, startY + (btnH + gap) }, { btnW, btnH });
+                    FloatRect loginBtn({ col1X, startY + (btnH + gap) * 2 }, { btnW, btnH });
+                    FloatRect creators({ col2X, startY }, { btnW, btnH });
+                    FloatRect settings({ col2X, startY + (btnH + gap) }, { btnW, btnH });
+                    FloatRect questsBtn({ col2X, startY + (btnH + gap) * 2 }, { btnW, btnH });
+                    FloatRect exitBtn({ (1200.f - 200.f) / 2.f, startY + (btnH + gap) * 3 + 10.f }, { 200.f, 44.f });
 
-                    if      (levels.contains(mouse))    gameState = LEVELS_MENU;
+                    if (levels.contains(mouse))    gameState = LEVELS_MENU;
                     else if (creators.contains(mouse))  gameState = CREATORS_MENU;
                     else if (settings.contains(mouse))  gameState = SETTINGS_MENU;
                     else if (exitBtn.contains(mouse))   window.close();
@@ -1373,7 +1414,7 @@ int main()
                             shopSkins = s;
                             ApiClient::instance().cachedSkins = s;
                             shopLoaded = true;
-                        });
+                            });
                     }
                     else if (questsBtn.contains(mouse)) {
                         gameState = QUESTS_MENU;
@@ -1381,7 +1422,7 @@ int main()
                             quests.clear(); questsLoaded = false;
                             ApiClient::instance().getQuestsAsync([&quests, &questsLoaded](std::vector<ApiQuest> q) {
                                 quests = q; questsLoaded = true;
-                            });
+                                });
                         }
                     }
                 }
@@ -1459,10 +1500,10 @@ int main()
                 }
                 else if (gameState == LOGIN_MENU) {
                     FloatRect emailBox({ 400.f, 220.f }, { 400.f, 45.f });
-                    FloatRect passBox ({ 400.f, 290.f }, { 400.f, 45.f });
+                    FloatRect passBox({ 400.f, 290.f }, { 400.f, 45.f });
                     FloatRect loginBtn({ 400.f, 360.f }, { 190.f, 45.f });
-                    FloatRect regBtn  ({ 610.f, 360.f }, { 190.f, 45.f });
-                    FloatRect backBtn ({ 450.f, 500.f }, { 300.f, 50.f });
+                    FloatRect regBtn({ 610.f, 360.f }, { 190.f, 45.f });
+                    FloatRect backBtn({ 450.f, 500.f }, { 300.f, 50.f });
 
                     if (emailBox.contains(mouse)) {
                         loginEmailActive = true; loginPasswordActive = false;
@@ -1499,7 +1540,7 @@ int main()
                                         q.claimed = true;
                                         ApiClient::instance().player.coins += reward;
                                     }
-                                });
+                                    });
                             }
                         }
                         y += 70.f;
@@ -1522,20 +1563,21 @@ int main()
                                     if (buyBtn.contains(mouse)) {
                                         ApiClient::instance().buySkinAsync(s.id, [&s, &shopMessage](bool ok, std::string) {
                                             if (ok) { s.owned = true; ApiClient::instance().player.coins -= s.price; shopMessage = "Bought: " + s.name; }
-                                            else    { shopMessage = "Not enough coins!"; }
-                                        });
+                                            else { shopMessage = "Not enough coins!"; }
+                                            });
                                     }
-                                } else if (!s.equipped) {
+                                }
+                                else if (!s.equipped) {
                                     FloatRect equipBtn({ colX[t] + colW - 100.f, y + 18.f }, { 88.f, 34.f });
                                     if (equipBtn.contains(mouse)) {
                                         std::string sid = s.id, stype = s.type;
                                         ApiClient::instance().equipSkinAsync(sid, [&shopSkins, sid, stype, &shopMessage](bool ok) {
                                             if (ok) {
                                                 for (auto& sk : shopSkins) if (sk.type == stype) sk.equipped = false;
-                                                for (auto& sk : shopSkins) if (sk.id   == sid)   sk.equipped = true;
+                                                for (auto& sk : shopSkins) if (sk.id == sid)   sk.equipped = true;
                                                 shopMessage = "Equipped!";
                                             }
-                                        });
+                                            });
                                     }
                                 }
                                 y += 78.f;
@@ -1716,7 +1758,7 @@ int main()
 
             for (auto& e : enemies) e.draw(window, debugMode);
 
-            player.draw(window, view1, font);
+            player.draw(window, view1, font, debugMode);
             if (debugMode) {
                 Vector2f tl = view1.getCenter() - view1.getSize() / 2.f;
                 Vector2f br = view1.getCenter() + view1.getSize() / 2.f;
@@ -1735,7 +1777,7 @@ int main()
                             window.draw(dbgTile);
                         }
             }
-            DrawHUD(window, font, player, time, currentLevel, tx_HPBar, hasHPBar);
+            DrawHUD(window, font, player, time, currentLevel, tx_HPBar, hasHPBar, tx_StaminaBar, hasStaminaBar);
         }
         if (gameState == PAUSED) {
             window.setView(view1);
@@ -1744,7 +1786,7 @@ int main()
             drawMob(window, spriteSheet);
             drawInteresting(window, spriteSheet);
             for (auto& e : enemies) e.draw(window, debugMode);
-            player.draw(window, view1, font, debugMode);
+            player.draw(window, view1, font, debugMode, true);
             DrawPauseMenu(window, font, mousePos);
         }
         else if (gameState == GAME_OVER) {
@@ -1803,7 +1845,7 @@ int main()
 
             std::string st = ApiClient::instance().player.loggedIn
                 ? ("Player: " + ApiClient::instance().player.username
-                   + "   |   Coins: " + std::to_string(ApiClient::instance().player.coins))
+                    + "   |   Coins: " + std::to_string(ApiClient::instance().player.coins))
                 : "Not logged in — go to LOGIN first";
             Text stTxt(font, st, 16);
             stTxt.setFillColor(ApiClient::instance().player.loggedIn
@@ -1835,12 +1877,12 @@ int main()
             window.setView(window.getDefaultView());
             std::string authStr = ApiClient::instance().player.loggedIn
                 ? ("[ " + ApiClient::instance().player.username + "  |  "
-                   + std::to_string(ApiClient::instance().player.coins) + " coins ]")
+                    + std::to_string(ApiClient::instance().player.coins) + " coins ]")
                 : "[ Not logged in ]";
             Text authTxt(font, authStr, 18);
             authTxt.setFillColor(ApiClient::instance().player.loggedIn
                 ? Color(100, 255, 150) : Color(180, 180, 200));
-            authTxt.setOutlineColor(Color(0,0,0,180));
+            authTxt.setOutlineColor(Color(0, 0, 0, 180));
             authTxt.setOutlineThickness(1.f);
             FloatRect ab = authTxt.getLocalBounds();
             authTxt.setPosition({ (1200.f - ab.size.x) / 2.f, 210.f });

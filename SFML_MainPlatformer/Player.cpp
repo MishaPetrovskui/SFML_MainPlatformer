@@ -26,10 +26,6 @@ Player::Player(sf::Texture _tx, float startX, float startY) : texture(_tx), spri
     shape.setSize({ 30.f, 40.f });
     shape.setPosition({ startX, startY });
     spawnPoint = { startX, startY };
-    sprite.setTexture(texture);
-    sprite.setTextureRect(animation["idle"][0]);
-    sprite.setScale({ 2.5f, 2.5f });
-    sprite.setPosition({ startX, startY });
     velocity = { 0.f, 0.f };
     speed = 200.f;
     gravity = 900.f;
@@ -74,6 +70,61 @@ Player::Player(sf::Texture _tx, float startX, float startY) : texture(_tx), spri
     wallJumpLockTimer = 0.f;
 }
 
+void Player::loadAnimationSheets(const std::string& walkPath,
+    const std::string& attackPath,
+    const std::string& idlePath)
+{
+    // --- walkToRight / walkToLeft ---
+    animations["walkToRight"].texture.loadFromFile(walkPath);
+    animations["walkToRight"].frames = {
+        IntRect({0,   0}, {128, 128}), IntRect({128,  0}, {128, 128}),
+        IntRect({256, 0}, {128, 128}), IntRect({384,  0}, {128, 128}),
+        IntRect({512, 0}, {128, 128}), IntRect({640,  0}, {128, 128}),
+        IntRect({768, 0}, {128, 128}), IntRect({896,  0}, {128, 128}),
+        IntRect({1024,0}, {128, 128}), IntRect({1152, 0}, {128, 128}),
+        IntRect({1280,0}, {128, 128}), IntRect({1408, 0}, {128, 128}),
+        IntRect({1536,0}, {128, 128}), IntRect({1664, 0}, {128, 128}),
+        IntRect({1792,0}, {128, 128}),
+    };
+    // walkToLeft — та же текстура, те же фреймы (флип через setScale)
+    animations["walkToLeft"].texture.loadFromFile(walkPath);
+    animations["walkToLeft"].frames = animations["walkToRight"].frames;
+
+    // --- Attack ---
+    animations["Attack"].texture.loadFromFile(attackPath);
+    animations["Attack"].frames = {
+        IntRect({0,   0}, {128, 128}), IntRect({128, 0}, {128, 128}),
+        IntRect({256, 0}, {128, 128}), IntRect({384, 0}, {128, 128}),
+        IntRect({512, 0}, {128, 128}), IntRect({640, 0}, {128, 128}),
+        IntRect({768, 0}, {128, 128}), IntRect({896, 0}, {128, 128}),
+        IntRect({1024,0}, {128, 128}),
+    };
+
+    // --- Idle ---
+    animations["idle"].texture.loadFromFile(idlePath);
+    animations["idle"].frames = {
+        IntRect({0,   0}, {128, 128}), IntRect({128,  0}, {128, 128}),
+        IntRect({256, 0}, {128, 128}), IntRect({384,  0}, {128, 128}),
+        IntRect({512, 0}, {128, 128}), IntRect({640,  0}, {128, 128}),
+        IntRect({768, 0}, {128, 128}), IntRect({896,  0}, {128, 128}),
+        IntRect({1024,0}, {128, 128}), IntRect({1152, 0}, {128, 128}),
+        IntRect({1280,0}, {128, 128}), IntRect({1408, 0}, {128, 128}),
+        IntRect({1536,0}, {128, 128}), IntRect({1664, 0}, {128, 128}),
+        IntRect({1792,0}, {128, 128}),
+    };
+
+    // --- Jump / Death — переиспользуем idle ---
+    animations["Jump"].texture.loadFromFile(idlePath);
+    animations["Jump"].frames = animations["idle"].frames;
+
+    animations["Death"].texture.loadFromFile(walkPath);
+    animations["Death"].frames = { IntRect({0, 0}, {128, 128}) };
+
+    // Применяем первый фрейм idle
+    sprite.setTexture(animations["idle"].texture, true);
+    sprite.setTextureRect(animations["idle"].frames[0]);
+}
+
 sf::FloatRect Player::getInnerBounds() const {
     sf::FloatRect b = shape.getGlobalBounds();
     const float hShrink = 4.f;
@@ -111,35 +162,42 @@ bool Player::checkWallContact(int map[][501], int mapWidth, int mapHeight, float
 }
 
 void Player::updateAnimation(float dt) {
-    float currentSpeed = (currentAnimation == "idle") ? 0.5f : animationSpeed;
+    if (animations.find(currentAnimation) == animations.end()) return;
+    Animation& anim = animations[currentAnimation];
+    if (anim.frames.empty()) return;
+
+    float spd = (currentAnimation == "idle") ? 0.12f : animationSpeed;
     animationTimer += dt;
-    if (animationTimer >= currentSpeed) {
+    if (animationTimer >= spd) {
         animationTimer = 0.f;
-        if (animation.find(currentAnimation) != animation.end()) {
-            animationFrame++;
-            if (animationFrame >= (int)animation[currentAnimation].size()) {
-                if (currentAnimation == "Death") {
-                    animationFrame = (int)animation[currentAnimation].size() - 1;
-                    deathAnimationFinished = true;
-                }
-                else {
-                    animationFrame = 0;
-                }
+        animationFrame++;
+        if (animationFrame >= (int)anim.frames.size()) {
+            if (currentAnimation == "Death") {
+                animationFrame = (int)anim.frames.size() - 1;
+                deathAnimationFinished = true;
             }
-            sprite.setTextureRect(animation[currentAnimation][animationFrame]);
+            else {
+                animationFrame = 0;
+            }
         }
+        sprite.setTexture(anim.texture, true);
+        sprite.setTextureRect(anim.frames[animationFrame]);
     }
 }
 
 void Player::setAnimation(const string& animName) {
-    if (currentAnimation != animName) {
-        currentAnimation = animName;
-        animationFrame = 0;
-        animationTimer = 0.f;
-        if (animName == "Death") deathAnimationFinished = false;
-        if (animation.find(animName) != animation.end())
-            sprite.setTextureRect(animation[animName][0]);
-    }
+    if (currentAnimation == animName) return;
+    if (animations.find(animName) == animations.end()) return;
+
+    currentAnimation = animName;
+    animationFrame = 0;
+    animationTimer = 0.f;
+    if (animName == "Death") deathAnimationFinished = false;
+
+    Animation& anim = animations[animName];
+    sprite.setTexture(anim.texture, true);
+    if (!anim.frames.empty())
+        sprite.setTextureRect(anim.frames[0]);
 }
 
 void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float tileSize,
@@ -156,6 +214,7 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
 
     if (dashCooldownTimer > 0.f) dashCooldownTimer -= dt;
     if (attackTimer > 0.f) attackTimer -= dt;
+    if (hitFreezeTimer > 0.f) hitFreezeTimer -= dt;
     if (damageFlashTimer > 0.f) damageFlashTimer -= dt;
     if (spikeInvulTimer > 0.f) spikeInvulTimer -= dt;
     if (wallJumpLockTimer > 0.f) wallJumpLockTimer -= dt;
@@ -262,7 +321,10 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
                 bool left = sf::Keyboard::isKeyPressed(sf::Keyboard::Key::A) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Left);
                 bool right = sf::Keyboard::isKeyPressed(sf::Keyboard::Key::D) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Right);
 
-                if (left && !right) {
+                if (hitFreezeTimer > 0.f) {
+                    velocity.x = 0.f;  // заморозка при ударе
+                }
+                else if (left && !right) {
                     velocity.x = -speed;
                     facingRight = false;
                 }
@@ -314,10 +376,26 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
         setAnimation("Attack");
         animationFrame = 0;
         animationTimer = 0.f;
+        attackHitDealt = false;
+        attackTimer = attackCooldown;
+    }
 
+    // До удара (frame < 4) — направление атаки следует за игроком каждый кадр
+    // На frame 4 — фиксируем направление и наносим урон
+    if (currentAnimation == "Attack" && !attackHitDealt) {
         bool atkUp = sf::Keyboard::isKeyPressed(sf::Keyboard::Key::W) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Up);
         bool atkDown = sf::Keyboard::isKeyPressed(sf::Keyboard::Key::S) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Down);
 
+        if (atkUp && !atkDown)          attackDir = { 0.f, -1.f };
+        else if (atkDown && !atkUp)          attackDir = { 0.f,  1.f };
+        else if (facingRight)                attackDir = { 1.f,  0.f };
+        else                                 attackDir = { -1.f, 0.f };
+    }
+
+    // Deal damage at hit frame (frame 4 = peak of sword swing)
+    if (currentAnimation == "Attack" && animationFrame == 4 && !attackHitDealt) {
+        attackHitDealt = true;
+        hitFreezeTimer = HIT_FREEZE_DURATION;  // заморозить игрока при ударе
         sf::FloatRect pBounds = shape.getGlobalBounds();
         const float sideRange = 75.f;
         const float vertRange = 60.f;
@@ -327,46 +405,23 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
         float hh = pBounds.size.y * 0.5f;
 
         sf::FloatRect attackRect;
+        bool ar_ = attackDir.x > 0.f, al = attackDir.x < 0.f;
+        bool au = attackDir.y < 0.f, ad = attackDir.y > 0.f;
 
-        if (atkUp && !atkDown) {
-            attackRect = { { cx - hw, cy - hh - vertRange }, { pBounds.size.x, vertRange } };
-            attackDir = { 0.f, -1.f };
-        }
-        else if (atkDown && !atkUp) {
-            attackRect = { { cx - hw, cy + hh }, { pBounds.size.x, vertRange } };
-            attackDir = { 0.f, 1.f };
-        }
-        else if (atkUp && facingRight) {
-            attackRect = { { cx, cy - hh - vertRange }, { sideRange, vertRange + hh } };
-            attackDir = { 1.f, -1.f };
-        }
-        else if (atkUp && !facingRight) {
-            attackRect = { { cx - sideRange, cy - hh - vertRange }, { sideRange, vertRange + hh } };
-            attackDir = { -1.f, -1.f };
-        }
-        else if (atkDown && facingRight) {
-            attackRect = { { cx, cy }, { sideRange, hh + vertRange } };
-            attackDir = { 1.f, 1.f };
-        }
-        else if (atkDown && !facingRight) {
-            attackRect = { { cx - sideRange, cy }, { sideRange, hh + vertRange } };
-            attackDir = { -1.f, 1.f };
-        }
-        else if (facingRight) {
-            attackRect = { { cx, cy - hh }, { sideRange, pBounds.size.y } };
-            attackDir = { 1.f, 0.f };
-        }
-        else {
-            attackRect = { { cx - sideRange, cy - hh }, { sideRange, pBounds.size.y } };
-            attackDir = { -1.f, 0.f };
-        }
+        if (!ar_ && !al && au && !ad) attackRect = { { cx - hw, cy - hh - vertRange }, { pBounds.size.x, vertRange } };
+        else if (!ar_ && !al && !au && ad) attackRect = { { cx - hw, cy + hh }, { pBounds.size.x, vertRange } };
+        else if (ar_ && !al && au && !ad) attackRect = { { cx, cy - hh - vertRange }, { sideRange, vertRange + hh } };
+        else if (!ar_ && al && au && !ad) attackRect = { { cx - sideRange, cy - hh - vertRange }, { sideRange, vertRange + hh } };
+        else if (ar_ && !al && !au && ad) attackRect = { { cx, cy }, { sideRange, hh + vertRange } };
+        else if (!ar_ && al && !au && ad) attackRect = { { cx - sideRange, cy }, { sideRange, hh + vertRange } };
+        else if (ar_) attackRect = { { cx, cy - hh }, { sideRange, pBounds.size.y } };
+        else          attackRect = { { cx - sideRange, cy - hh }, { sideRange, pBounds.size.y } };
 
         for (auto& e : enemies) {
             if (!e.isAlive()) continue;
             if (rectsIntersect(attackRect, e.getBounds()))
                 e.takeDamage(attackDamage);
         }
-        attackTimer = attackCooldown;
     }
 
     sf::Vector2f nextPos = shape.getPosition() + velocity * dt;
@@ -428,31 +483,32 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
 
     jumpHeld = jumpKeyDown;
 
-  //  if (currentAnimation == "Attack") {
-  //      if (animationFrame >= (int)animation["Attack"].size() - 1 && attackTimer <= 0.f) {
-  //          if (!onGround)          setAnimation("Jump");
-  //          else if (velocity.x != 0.f) setAnimation(facingRight ? "walkToRight" : "walkToLeft");
-  //          else                    setAnimation("idle");
-  //      }
-  //  }
+    //  if (currentAnimation == "Attack") {
+    //      if (animationFrame >= (int)animation["Attack"].size() - 1 && attackTimer <= 0.f) {
+    //          if (!onGround)          setAnimation("Jump");
+    //          else if (velocity.x != 0.f) setAnimation(facingRight ? "walkToRight" : "walkToLeft");
+    //          else                    setAnimation("idle");
+    //      }
+    //  }
 
-  //  if (!onGround) {
-  //      setAnimation("Jump");
-  //  }
-  //  else if (velocity.x != 0.f) {
-  //      setAnimation(facingRight ? "walkToRight" : "walkToLeft");
-  //  }
-  //  else {
-  //      //if (attackTimer > 0.f || (sf::Keyboard::isKeyPressed(attackKey) && attackTimer <= 0.f)) {
-  //      //    if (currentAnimation != "Attack") setAnimation("Attack");
-  //      //}
-  //      //else {
-  //      //    setAnimation("idle");
-  //      //}
-		//setAnimation("idle");
-  //  }
+    //  if (!onGround) {
+    //      setAnimation("Jump");
+    //  }
+    //  else if (velocity.x != 0.f) {
+    //      setAnimation(facingRight ? "walkToRight" : "walkToLeft");
+    //  }
+    //  else {
+    //      //if (attackTimer > 0.f || (sf::Keyboard::isKeyPressed(attackKey) && attackTimer <= 0.f)) {
+    //      //    if (currentAnimation != "Attack") setAnimation("Attack");
+    //      //}
+    //      //else {
+    //      //    setAnimation("idle");
+    //      //}
+          //setAnimation("idle");
+    //  }
     if (currentAnimation == "Attack") {
-        if (animationFrame >= (int)animation["Attack"].size() - 1 && attackTimer <= 0.f) {
+        int attackFrameCount = animations.count("Attack") ? (int)animations["Attack"].frames.size() : 1;
+        if (animationFrame >= attackFrameCount - 1 && attackTimer <= 0.f) {
             if (!onGround) setAnimation("Jump");
             else if (velocity.x != 0.f) setAnimation(facingRight ? "walkToRight" : "walkToLeft");
             else setAnimation("idle");
@@ -470,15 +526,18 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
 
     updateAnimation(dt);
 
-    sprite.setScale(facingRight ? sf::Vector2f{ 2.5f, 2.5f } : sf::Vector2f{ -2.5f, 2.5f });
+    // Спрайт: origin на центре тела (x=44.5) и ногах (y=96), флип через setScale
+    const float sprScale = 0.9f;
+    const float FEET_ROW = 96.f;
+    const float BODY_CX = 44.5f;
+
+    sprite.setOrigin({ BODY_CX, FEET_ROW });
+    sprite.setScale(facingRight ? sf::Vector2f{ sprScale, sprScale }
+    : sf::Vector2f{ -sprScale, sprScale });
 
     sf::Vector2f spritePos = shape.getPosition();
-    sf::IntRect  texRect = sprite.getTextureRect();
-    float spriteH = texRect.size.y * 2.5f;
-    float spriteW = texRect.size.x * 2.5f;
-    spritePos.y += shape.getSize().y - spriteH;
-    spritePos.x += (shape.getSize().x - spriteW) / 2.f;
-    if (!facingRight) spritePos.x += spriteW;
+    spritePos.x += shape.getSize().x * 0.5f;  // центр хитбокса по X
+    spritePos.y += shape.getSize().y;          // низ хитбокса по Y
     sprite.setPosition(spritePos);
 
     sf::FloatRect playerBounds = shape.getGlobalBounds();
@@ -560,7 +619,7 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
     }
 }
 
-void Player::draw(sf::RenderWindow& window, sf::View& view1, sf::Font& font, bool debugMode) {
+void Player::draw(sf::RenderWindow& window, sf::View& view1, sf::Font& font, bool debugMode, bool pauseMode) {
     window.setView(view1);
 
     if (damageFlashTimer > 0.f) {
@@ -574,6 +633,7 @@ void Player::draw(sf::RenderWindow& window, sf::View& view1, sf::Font& font, boo
     window.draw(sprite);
 
     if (debugMode) {
+        // Hitbox (cyan = outer shape, yellow = inner bounds) — always in debugMode
         sf::RectangleShape dbgShape(shape.getSize());
         dbgShape.setPosition(shape.getPosition());
         dbgShape.setFillColor(sf::Color::Transparent);
@@ -620,20 +680,23 @@ void Player::draw(sf::RenderWindow& window, sf::View& view1, sf::Font& font, boo
             dbgAtk.setOutlineThickness(2.f);
             window.draw(dbgAtk);
         }
-        sf::Font* fPtr = &font;
-        sf::Text dbgTxt(font,
-            "vel: " + std::to_string((int)velocity.x) + "," + std::to_string((int)velocity.y) +
-            "\nhp:" + std::to_string(hp) + " sta:" + std::to_string((int)stamina) +
-            "\n" + currentAnimation +
-            (isDashing ? " [DASH]" : "") +
-            (isSliding ? " [SLIDE]" : "") +
-            (onGround ? " [GND]" : ""),
-            14);
-        dbgTxt.setFillColor(sf::Color::White);
-        dbgTxt.setOutlineColor(sf::Color::Black);
-        dbgTxt.setOutlineThickness(1.f);
-        dbgTxt.setPosition({ shape.getPosition().x - 20.f, shape.getPosition().y - 65.f });
-        window.draw(dbgTxt);
+
+        // Stats text — only in pause mode
+        if (pauseMode) {
+            sf::Text dbgTxt(font,
+                "vel: " + std::to_string((int)velocity.x) + "," + std::to_string((int)velocity.y) +
+                "\nhp:" + std::to_string(hp) + " sta:" + std::to_string((int)stamina) +
+                "\n" + currentAnimation +
+                (isDashing ? " [DASH]" : "") +
+                (isSliding ? " [SLIDE]" : "") +
+                (onGround ? " [GND]" : ""),
+                14);
+            dbgTxt.setFillColor(sf::Color::White);
+            dbgTxt.setOutlineColor(sf::Color::Black);
+            dbgTxt.setOutlineThickness(1.f);
+            dbgTxt.setPosition({ shape.getPosition().x - 20.f, shape.getPosition().y - 65.f });
+            window.draw(dbgTxt);
+        }
     }
 
     window.setView(view1);
@@ -648,6 +711,7 @@ void Player::reset() {
     isDashing = false;
     dashCooldownTimer = 0.f;
     attackTimer = 0.f;
+    attackHitDealt = false;
     lavaDamageAccum = 0.f;
     spikeInvulTimer = 0.f;
     wasOnSpike = false;
@@ -657,9 +721,13 @@ void Player::reset() {
     facingRight = true;
     hasKey = false;
     deathAnimationFinished = false;
-    sprite.setPosition(spawnPoint);
-    sprite.setTextureRect(animation["idle"][0]);
-    sprite.setScale({ 2.5f, 2.5f });
+    if (animations.count("idle")) {
+        Animation& anim = animations["idle"];
+        sprite.setTexture(anim.texture, true);
+        if (!anim.frames.empty()) sprite.setTextureRect(anim.frames[0]);
+        sprite.setOrigin({ 44.5f, 96.f });
+        sprite.setScale({ 0.9f, 0.9f });
+    }
     dashAvailable = true;
 
     jumpHeld = false;

@@ -4,9 +4,16 @@
 #include <thread>
 #include <atomic>
 #include <mutex>
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
 #include <windows.h>
 #include <winhttp.h>
 #pragma comment(lib, "winhttp.lib")
+// Windows заголовки определяют 'byte' через typedef, что конфликтует со std::byte.
+// Убираем его — в этом файле он не нужен.
+#ifdef byte
+#undef byte
+#endif
 
 struct ApiPlayerInfo {
     int id = 0;
@@ -169,6 +176,26 @@ public:
         std::thread([this, sid, callback]() {
             std::string resp = postAuth("/api/shop/buy/" + sid, "{}");
             callback(!resp.empty() && resp.find("error") == std::string::npos, resp);
+            }).detach();
+    }
+
+    // Синхронизация состояния игрока с сервером (монеты, квесты).
+    // Вызывается из Player::update каждые QUEST_POLL_INTERVAL секунд.
+    // Позволяет подхватить награды, полученные через сайт, без перелогина.
+    void refreshPlayerAsync() {
+        if (!player.loggedIn) return;
+        std::thread([this]() {
+            std::string resp = getAuth("/api/player/me");
+            if (resp.empty()) return;
+            std::lock_guard<std::mutex> lock(statusMutex);
+            int newCoins = extractInt(resp, "coins");
+            if (newCoins != player.coins) {
+                player.coins = newCoins;
+                // statusMessage не меняем — это фоновое обновление
+            }
+            // Имя и email тоже синхронизируем на случай изменения через сайт
+            std::string newName = extractStr(resp, "username");
+            if (!newName.empty()) player.username = newName;
             }).detach();
     }
 

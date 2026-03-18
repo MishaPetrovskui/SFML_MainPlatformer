@@ -1301,7 +1301,8 @@ int main()
     player.loadAnimationSheets(
         "Sprites/player_walk.png",
         "Sprites/player_attack.png",
-        "Sprites/player_idle.png"
+        "Sprites/player_idle.png",
+        "Sprites/player_fall.png"
     );
     Clock clock;
     GameState gameState = MAIN_MENU;

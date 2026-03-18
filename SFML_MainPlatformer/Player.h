@@ -4,9 +4,11 @@
 #include <cmath>
 #include <map>
 #include <vector>
+#include <string>
+// ApiClient.h включается в Player.cpp (не здесь, чтобы избежать циклических зависимостей)
+// ВАЖНО: using namespace sf/std убраны из заголовка — они конфликтовали с Windows byte typedef.
+// В Player.cpp они по-прежнему есть локально если нужны.
 
-using namespace sf;
-using namespace std;
 class Enemy;
 
 class Player {
@@ -50,7 +52,7 @@ private:
     static constexpr float HIT_FREEZE_DURATION = 0.15f;
     sf::Keyboard::Key attackKey;
     sf::Vector2f attackDir = { 1.f, 0.f };
-    string currentAnimation;
+    std::string currentAnimation;
     int animationFrame;
     float animationTimer;
     float animationSpeed;
@@ -70,23 +72,34 @@ private:
     static constexpr float JUMP_VELOCITY = 420.f;
     static constexpr float JUMP_CUT_VELOCITY = 170.f;
     static constexpr float LEDGE_FORGIVENESS = 5.f;
+    // Порог скорости падения для смены анимации на Fall.
+    // 0 = переключаться как только velocity.y стала положительной (летим вниз).
+    // Таймер airTime отвечает за задержку чтобы маленькие прыжки не мелькали.
+    static constexpr float FALL_VELOCITY_THRESHOLD = 250.f; // не используется напрямую
+    // Сколько секунд нужно лететь вниз прежде чем включить Fall
+    static constexpr float FALL_DELAY = 0.08f;
+    // Polling квестов: тянем обновлённые данные с сервера
+    float questPollTimer = 0.f;
+    static constexpr float QUEST_POLL_INTERVAL = 15.f; // секунд
+    float fallTimer = 0.f; // сколько секунд падаем вниз (velocity.y > 0)
     // Новая система анимаций — каждая анимация хранит свою текстуру и фреймы
     struct Animation {
         sf::Texture texture;
         std::vector<sf::IntRect> frames;
     };
-    map<string, Animation> animations;
+    std::map<std::string, Animation> animations;
 
     bool checkWallContact(int map[][501], int mapWidth, int mapHeight, float tileSize);
     void updateAnimation(float dt);
-    void setAnimation(const string& animName);
+    void setAnimation(const std::string& animName);
     sf::FloatRect getInnerBounds() const;
 
 public:
-    Player(Texture, float startX = 50.f, float startY = 50.f);
+    Player(sf::Texture, float startX = 50.f, float startY = 50.f);
     void loadAnimationSheets(const std::string& walkPath,
         const std::string& attackPath,
-        const std::string& idlePath);
+        const std::string& idlePath,
+        const std::string& fallPath = "");  // пустая строка = переиспользовать jump
     void update(float dt, int map[][501], int mapWidth, int mapHeight, float tileSize, sf::View& view1, sf::RenderWindow& window,
         int mobMap[][501], int interestingMap[][501], int backgroundMap[][501], std::vector<Enemy>& enemies);
     void draw(sf::RenderWindow& window, sf::View& view1, sf::Font& font, bool debugMode = false, bool pauseMode = false);

@@ -1,6 +1,11 @@
 #include "Player.h"
 #include "Enemy.h"
+#include "ApiClient.h"
 #include <algorithm>
+
+// using namespace в .cpp — нормально, конфликт byte был только из-за заголовка
+using namespace sf;
+using namespace std;
 
 static bool rectsIntersect(const sf::FloatRect& a, const sf::FloatRect& b) {
     return (a.position.x < b.position.x + b.size.x) && (a.position.x + a.size.x > b.position.x) &&
@@ -72,7 +77,8 @@ Player::Player(sf::Texture _tx, float startX, float startY) : texture(_tx), spri
 
 void Player::loadAnimationSheets(const std::string& walkPath,
     const std::string& attackPath,
-    const std::string& idlePath)
+    const std::string& idlePath,
+    const std::string& fallPath)
 {
     // --- walkToRight / walkToLeft ---
     animations["walkToRight"].texture.loadFromFile(walkPath);
@@ -117,10 +123,32 @@ void Player::loadAnimationSheets(const std::string& walkPath,
     animations["Jump"].texture.loadFromFile(idlePath);
     animations["Jump"].frames = animations["idle"].frames;
 
+    // --- Fall ---
+    // Если есть fall.png — грузим его (128×128 фреймы в ряд, любое кол-во).
+    // Иначе fallback: первые 4 фрейма idle (нейтральная поза в воздухе).
+    // Имя файла: "fall.png" — тот же формат что walk/idle/attack.
+    if (!fallPath.empty()) {
+        animations["Fall"].texture.loadFromFile(fallPath);
+        // Читаем столько фреймов сколько есть в файле — по ширине текстуры
+        auto& fallTex = animations["Fall"].texture;
+        int frameCount = (int)(fallTex.getSize().x / 128);
+        if (frameCount < 1) frameCount = 1;
+        for (int i = 0; i < frameCount; ++i)
+            animations["Fall"].frames.push_back(IntRect({ i * 128, 0 }, { 128, 128 }));
+    }
+    else {
+        // Fallback: берём первые 4 фрейма idle — персонаж висит в нейтральной позе
+        animations["Fall"].texture.loadFromFile(idlePath);
+        animations["Fall"].frames = {
+            IntRect({0,   0}, {128, 128}),
+            IntRect({128, 0}, {128, 128}),
+            IntRect({256, 0}, {128, 128}),
+            IntRect({384, 0}, {128, 128}),
+        };
+    }
+
     animations["Death"].texture.loadFromFile(walkPath);
     animations["Death"].frames = { IntRect({0, 0}, {128, 128}) };
-
-    // Применяем первый фрейм idle
     sprite.setTexture(animations["idle"].texture, true);
     sprite.setTextureRect(animations["idle"].frames[0]);
 }
@@ -166,20 +194,36 @@ void Player::updateAnimation(float dt) {
     Animation& anim = animations[currentAnimation];
     if (anim.frames.empty()) return;
 
-    float spd = (currentAnimation == "idle") ? 0.12f : animationSpeed;
+    float spd = (currentAnimation == "idle") ? 0.12f
+        : (currentAnimation == "Fall") ? 0.07f   // быстрее — вступление проходит за ~0.5с
+        : animationSpeed;
     animationTimer += dt;
     if (animationTimer >= spd) {
         animationTimer = 0.f;
         animationFrame++;
-        if (animationFrame >= (int)anim.frames.size()) {
-            if (currentAnimation == "Death") {
+
+        if (currentAnimation == "Death") {
+            if (animationFrame >= (int)anim.frames.size()) {
                 animationFrame = (int)anim.frames.size() - 1;
                 deathAnimationFinished = true;
             }
-            else {
-                animationFrame = 0;
+        }
+        else if (currentAnimation == "Fall") {
+            int total = (int)anim.frames.size();
+            if (animationFrame >= total) {
+                // Вступление закончено — зацикливаем последние 4 фрейма
+                // Если фреймов меньше 4 — зацикливаем последний один
+                int loopStart = std::max(0, total - 4);
+                // Вычисляем позицию внутри петли чтобы не прыгать на начало
+                int loopLen = total - loopStart;
+                animationFrame = loopStart + ((animationFrame - loopStart) % loopLen);
             }
         }
+        else {
+            if (animationFrame >= (int)anim.frames.size())
+                animationFrame = 0;
+        }
+
         sprite.setTexture(anim.texture, true);
         sprite.setTextureRect(anim.frames[animationFrame]);
     }
@@ -218,6 +262,26 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
     if (damageFlashTimer > 0.f) damageFlashTimer -= dt;
     if (spikeInvulTimer > 0.f) spikeInvulTimer -= dt;
     if (wallJumpLockTimer > 0.f) wallJumpLockTimer -= dt;
+
+    // Quest polling: каждые QUEST_POLL_INTERVAL секунд запрашиваем квесты с сервера.
+    // Это означает что если игрок заклеймил награду на сайте — игра подхватит
+    // обновлённое состояние без перелогина. Реализовано через ApiClient.
+    questPollTimer += dt;
+    if (questPollTimer >= QUEST_POLL_INTERVAL) {
+        questPollTimer = 0.f;
+        // Вызываем refresh через ApiClient — он обновит coins и quests асинхронно
+        auto& api = ApiClient::instance();
+        if (api.player.loggedIn) {
+            // Перезапрашиваем данные игрока (монеты могут измениться после клейма на сайте)
+            api.getQuestsAsync([](std::vector<ApiQuest>) {});  // просто обновляем кэш
+            // Синхронизируем монеты через /api/player/me
+            std::thread([&api]() {
+                // Используем внутренний getAuth — публичный только через friend или добавить метод
+                // Смотри ниже: нужно добавить refreshPlayerAsync в ApiClient
+                api.refreshPlayerAsync();
+                }).detach();
+        }
+    }
 
     bool jumpKeyDown = sf::Keyboard::isKeyPressed(sf::Keyboard::Key::W) ||
         sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Up) ||
@@ -509,19 +573,39 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
     if (currentAnimation == "Attack") {
         int attackFrameCount = animations.count("Attack") ? (int)animations["Attack"].frames.size() : 1;
         if (animationFrame >= attackFrameCount - 1 && attackTimer <= 0.f) {
-            if (!onGround) setAnimation("Jump");
+            if (!onGround && velocity.y > 0.f)
+                setAnimation("Fall");
+            else if (!onGround)
+                setAnimation("Jump");
             else if (velocity.x != 0.f) setAnimation(facingRight ? "walkToRight" : "walkToLeft");
             else setAnimation("idle");
         }
     }
     else if (!onGround) {
-        setAnimation("Jump");
+        if (velocity.y <= 0.f) {
+            // Летим вверх — всегда Jump, сбрасываем таймер падения
+            fallTimer = 0.f;
+            setAnimation("Jump");
+        }
+        else {
+            // Летим вниз — накапливаем таймер
+            fallTimer += dt;
+            if (fallTimer >= FALL_DELAY) {
+                // Достаточно долго падаем — включаем Fall
+                if (currentAnimation != "Fall")
+                    setAnimation("Fall");
+                // Fall уже играет — не трогаем (не сбрасываем фрейм)
+            }
+            // иначе ещё держим Jump (короткий прыжок — Fall не мелькнёт)
+        }
     }
     else if (velocity.x != 0.f) {
         setAnimation(facingRight ? "walkToRight" : "walkToLeft");
+        fallTimer = 0.f;
     }
     else {
         setAnimation("idle");
+        fallTimer = 0.f;
     }
 
     updateAnimation(dt);
@@ -734,6 +818,7 @@ void Player::reset() {
     coyoteTimer = 0.f;
     jumpBufferTimer = 0.f;
     wallJumpLockTimer = 0.f;
+    fallTimer = 0.f;
 }
 
 void Player::setSpawnPoint(float x, float y) {

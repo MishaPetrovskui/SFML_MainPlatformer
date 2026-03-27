@@ -9,8 +9,6 @@
 #include <windows.h>
 #include <winhttp.h>
 #pragma comment(lib, "winhttp.lib")
-// Windows заголовки определяют 'byte' через typedef, что конфликтует со std::byte.
-// Убираем его — в этом файле он не нужен.
 #ifdef byte
 #undef byte
 #endif
@@ -179,9 +177,6 @@ public:
             }).detach();
     }
 
-    // Синхронизация состояния игрока с сервером (монеты, квесты).
-    // Вызывается из Player::update каждые QUEST_POLL_INTERVAL секунд.
-    // Позволяет подхватить награды, полученные через сайт, без перелогина.
     void refreshPlayerAsync() {
         if (!player.loggedIn) return;
         std::thread([this]() {
@@ -191,9 +186,7 @@ public:
             int newCoins = extractInt(resp, "coins");
             if (newCoins != player.coins) {
                 player.coins = newCoins;
-                // statusMessage не меняем — это фоновое обновление
             }
-            // Имя и email тоже синхронизируем на случай изменения через сайт
             std::string newName = extractStr(resp, "username");
             if (!newName.empty()) player.username = newName;
             }).detach();

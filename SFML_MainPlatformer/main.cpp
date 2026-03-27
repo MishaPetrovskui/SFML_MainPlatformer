@@ -4,6 +4,7 @@
 #include <map>
 #include <cstring>
 #include <set>
+#include <algorithm>
 #include <windows.h>
 #include <fstream>
 #include <sstream>
@@ -12,6 +13,8 @@
 #include "Enemy.h"
 #pragma comment(lib, "winhttp.lib")
 #include "ApiClient.h"
+#include "Gamemap.h"
+#include "GameMap_Physics.h"
 
 using namespace sf;
 using namespace std;
@@ -24,9 +27,18 @@ int MAP[MAP_HEIGHT][MAP_WIDTH + 1] = {};
 int MobMAP[MAP_HEIGHT][MAP_WIDTH + 1] = {};
 int InterestingMAP[MAP_HEIGHT][MAP_WIDTH + 1] = {};
 
+static const int MAP3_H = 500;
+static const int MAP3_W = 500;
+int MAP3_TILES[MAP3_H][MAP3_W + 1] = {};
+
+GameMap gMap3;
+bool    gUsingMap3 = false;
+
 float TileSize = 40.f;
+const float MAP3_TILE_SIZE = 32.f;
 
 View view1(FloatRect({ 0, 0 }, { 1200, 800 }));
+const View FIXED_UI_VIEW(FloatRect({ 0.f, 0.f }, { 1200.f, 800.f }));
 
 enum GameState {
     MAIN_MENU,
@@ -254,9 +266,16 @@ static string keyToString(Keyboard::Key k) {
 
 void drawMap(RenderWindow& window, map<int, Sprite>& spriteSheet)
 {
-    for (int y = 0; y < MAP_HEIGHT; y++)
+    Vector2f topLeft = view1.getCenter() - view1.getSize() / 2.f;
+    Vector2f bottomRight = view1.getCenter() + view1.getSize() / 2.f;
+    int sx = max(0, (int)(topLeft.x / TileSize) - 1);
+    int sy = max(0, (int)(topLeft.y / TileSize) - 1);
+    int ex = min(MAP_WIDTH, (int)(bottomRight.x / TileSize) + 2);
+    int ey = min(MAP_HEIGHT, (int)(bottomRight.y / TileSize) + 2);
+
+    for (int y = sy; y < ey; y++)
     {
-        for (int x = 0; x < MAP_WIDTH; x++)
+        for (int x = sx; x < ex; x++)
         {
             int tile = MAP[y][x];
             if (tile == -1) continue;
@@ -264,6 +283,7 @@ void drawMap(RenderWindow& window, map<int, Sprite>& spriteSheet)
             auto sprite = spriteSheet.find(tile);
             if (sprite == spriteSheet.end())
                 sprite = spriteSheet.find(0);
+            if (sprite == spriteSheet.end()) continue;
 
             sprite->second.setPosition({ x * TileSize, y * TileSize });
             window.draw(sprite->second);
@@ -296,9 +316,16 @@ void drawBg(RenderWindow& window, map<int, Sprite>& spriteSheet)
 
 void drawMob(RenderWindow& window, map<int, Sprite>& spriteSheet)
 {
-    for (int y = 0; y < MAP_HEIGHT; y++)
+    Vector2f topLeft = view1.getCenter() - view1.getSize() / 2.f;
+    Vector2f bottomRight = view1.getCenter() + view1.getSize() / 2.f;
+    int sx = max(0, (int)(topLeft.x / TileSize) - 1);
+    int sy = max(0, (int)(topLeft.y / TileSize) - 1);
+    int ex = min(MAP_WIDTH, (int)(bottomRight.x / TileSize) + 2);
+    int ey = min(MAP_HEIGHT, (int)(bottomRight.y / TileSize) + 2);
+
+    for (int y = sy; y < ey; y++)
     {
-        for (int x = 0; x < MAP_WIDTH; x++)
+        for (int x = sx; x < ex; x++)
         {
             int tile = MobMAP[y][x];
             if (tile == -1) continue;
@@ -306,6 +333,7 @@ void drawMob(RenderWindow& window, map<int, Sprite>& spriteSheet)
             auto sprite = spriteSheet.find(tile);
             if (sprite == spriteSheet.end())
                 sprite = spriteSheet.find(0);
+            if (sprite == spriteSheet.end()) continue;
 
             sprite->second.setPosition({ x * TileSize, y * TileSize });
             window.draw(sprite->second);
@@ -315,9 +343,16 @@ void drawMob(RenderWindow& window, map<int, Sprite>& spriteSheet)
 
 void drawInteresting(RenderWindow& window, map<int, Sprite>& spriteSheet)
 {
-    for (int y = 0; y < MAP_HEIGHT; y++)
+    Vector2f topLeft = view1.getCenter() - view1.getSize() / 2.f;
+    Vector2f bottomRight = view1.getCenter() + view1.getSize() / 2.f;
+    int sx = max(0, (int)(topLeft.x / TileSize) - 1);
+    int sy = max(0, (int)(topLeft.y / TileSize) - 1);
+    int ex = min(MAP_WIDTH, (int)(bottomRight.x / TileSize) + 2);
+    int ey = min(MAP_HEIGHT, (int)(bottomRight.y / TileSize) + 2);
+
+    for (int y = sy; y < ey; y++)
     {
-        for (int x = 0; x < MAP_WIDTH; x++)
+        for (int x = sx; x < ex; x++)
         {
             int tile = InterestingMAP[y][x];
             if (tile == -1) continue;
@@ -325,6 +360,7 @@ void drawInteresting(RenderWindow& window, map<int, Sprite>& spriteSheet)
             auto sprite = spriteSheet.find(tile);
             if (sprite == spriteSheet.end())
                 sprite = spriteSheet.find(0);
+            if (sprite == spriteSheet.end()) continue;
 
             sprite->second.setPosition({ x * TileSize, y * TileSize });
             window.draw(sprite->second);
@@ -408,7 +444,7 @@ void DrawMenuButton(RenderWindow& window, const FloatRect& rect, const string& t
 }
 
 void DrawMainMenu(RenderWindow& window, Font& font, Vector2i mousePos) {
-    window.setView(window.getDefaultView());
+    window.setView(FIXED_UI_VIEW);
 
     RectangleShape titleBg({ 560.f, 90.f });
     titleBg.setPosition({ 320.f, 100.f });
@@ -448,7 +484,7 @@ void DrawMainMenu(RenderWindow& window, Font& font, Vector2i mousePos) {
 }
 
 void DrawLevelsMenu(RenderWindow& window, Font& font, Vector2i mousePos) {
-    window.setView(window.getDefaultView());
+    window.setView(FIXED_UI_VIEW);
 
     Text title(font, "LEVELS", 48);
     title.setFillColor(Color::White);
@@ -462,15 +498,18 @@ void DrawLevelsMenu(RenderWindow& window, Font& font, Vector2i mousePos) {
     FloatRect level2Rect({ 450.f, 320.f }, { 300.f, 50.f });
     DrawMenuButton(window, level2Rect, "LEVEL 2", font, level2Rect.contains(Vector2f(mousePos)));
 
-    FloatRect bestTimesRect({ 450.f, 390.f }, { 300.f, 50.f });
+    FloatRect level3Rect({ 450.f, 390.f }, { 300.f, 50.f });
+    DrawMenuButton(window, level3Rect, "LEVEL 3", font, level3Rect.contains(Vector2f(mousePos)));
+
+    FloatRect bestTimesRect({ 450.f, 460.f }, { 300.f, 50.f });
     DrawMenuButton(window, bestTimesRect, "BEST TIMES", font, bestTimesRect.contains(Vector2f(mousePos)));
 
-    FloatRect backRect({ 450.f, 510.f }, { 300.f, 50.f });
+    FloatRect backRect({ 450.f, 540.f }, { 300.f, 50.f });
     DrawMenuButton(window, backRect, "BACK", font, backRect.contains(Vector2f(mousePos)));
 }
 
 void DrawBestTimesMenu(RenderWindow& window, Font& font, Vector2i mousePos) {
-    window.setView(window.getDefaultView());
+    window.setView(FIXED_UI_VIEW);
 
     Text title(font, "BEST TIMES", 48);
     title.setFillColor(Color::White);
@@ -531,7 +570,7 @@ void DrawBestTimesMenu(RenderWindow& window, Font& font, Vector2i mousePos) {
 }
 
 void DrawCreatorsMenu(RenderWindow& window, Font& font, Vector2i mousePos) {
-    window.setView(window.getDefaultView());
+    window.setView(FIXED_UI_VIEW);
 
     Text title(font, "CREATORS", 48);
     title.setFillColor(Color::White);
@@ -541,6 +580,7 @@ void DrawCreatorsMenu(RenderWindow& window, Font& font, Vector2i mousePos) {
 
     vector<string> creators = {
         "Petrovskiy Mikhailo (Dram)",
+        "Oreshkin Nikita (sheeeexy)",
         "Yashchenko Denis (HoWL)",
         "Kulik Svyatoslav (ezx)",
     };
@@ -560,7 +600,7 @@ void DrawCreatorsMenu(RenderWindow& window, Font& font, Vector2i mousePos) {
 }
 
 void DrawSettingsMenu(RenderWindow& window, Font& font, Vector2i mousePos, Keyboard::Key attackKey, bool waitingForRemap, bool limitedDash) {
-    window.setView(window.getDefaultView());
+    window.setView(FIXED_UI_VIEW);
 
     Text title(font, "SETTINGS", 48);
     title.setFillColor(Color::White);
@@ -601,7 +641,7 @@ void DrawHUD(RenderWindow& window, Font& font, const Player& player,
     Texture& tx_StaminaBar, bool hasStaminaBar)
 {
     View gameView = window.getView();
-    window.setView(window.getDefaultView());
+    window.setView(FIXED_UI_VIEW);
 
     Text timeText(font, FormatTime(gameTime), 28);
     FloatRect timeBounds = timeText.getLocalBounds();
@@ -618,10 +658,10 @@ void DrawHUD(RenderWindow& window, Font& font, const Player& player,
     levelText.setPosition({ 20.f, 10.f });
     window.draw(levelText);
     const float BAR_W = 380.f;
-    const float BAR_H = BAR_W * (200.f / 1000.f);   // 76px
+    const float BAR_H = BAR_W * (200.f / 1000.f);
     const float BAR_X = 10.f;
-    const float STA_BAR_Y = 800.f - BAR_H - 6.f;    // stamina bar — near bottom
-    const float BAR_Y = STA_BAR_Y - BAR_H - 4.f;    // HP bar — directly above stamina
+    const float STA_BAR_Y = 800.f - BAR_H - 6.f;
+    const float BAR_Y = STA_BAR_Y - BAR_H - 4.f;
 
     float scaleX = BAR_W / 1000.f;
     float scaleY = BAR_H / 200.f;
@@ -698,26 +738,20 @@ void DrawHUD(RenderWindow& window, Font& font, const Player& player,
     //hpText.setOutlineThickness(1.f);
     //window.draw(hpText);
 
-    // --- Stamina bar — same size as HP bar, directly below it ---
-    // mama 2.png inner fill: x=98..967 (w=869), y=47..149 (h=102)
     const float MAMA_INNER_X = 98.f, MAMA_INNER_W = 869.f;
     const float MAMA_INNER_Y = 47.f, MAMA_INNER_H = 102.f;
 
-    // mama 2.png drawn at SAME size as hp_bar (BAR_W x BAR_H, same scaleX/scaleY)
-    // Fill area inside mama2 at same relative position as hp_bar fill
     float staFillX = BAR_X + IMG_FILL_X * scaleX;
     float staFillY = STA_BAR_Y + IMG_FILL_Y * scaleY;
 
     float staRatio = player.getStamina() / player.getMaxStamina();
     staRatio = std::max(0.f, std::min(1.f, staRatio));
 
-    // 1) Dark background inside frame
     RectangleShape staBg({ fillW, fillH });
     staBg.setPosition({ staFillX, staFillY });
     staBg.setFillColor(Color(0, 20, 0, 255));
     window.draw(staBg);
 
-    // 2) Green fill
     if (staRatio > 0.f) {
         Color staColor = (staRatio > 0.5f) ? Color(40, 210, 60) :
             (staRatio > 0.25f) ? Color(150, 210, 30) :
@@ -733,7 +767,6 @@ void DrawHUD(RenderWindow& window, Font& font, const Player& player,
         window.draw(staShine);
     }
 
-    // 3) mama 2.png — same size as hp_bar (BAR_W x BAR_H, scaleX x scaleY)
     if (hasStaminaBar) {
         Sprite staSprite(tx_StaminaBar);
         staSprite.setPosition({ BAR_X, STA_BAR_Y });
@@ -763,7 +796,7 @@ string FormatTime(float seconds) {
 }
 
 void drawGameOver(RenderWindow& window, Font& font) {
-    View menuView = window.getDefaultView();
+    View menuView = FIXED_UI_VIEW;
     window.setView(menuView);
 
     RectangleShape overlay({ 1200.f, 800.f });
@@ -789,7 +822,7 @@ void drawGameOver(RenderWindow& window, Font& font) {
 }
 
 void DrawPauseMenu(RenderWindow& window, Font& font, Vector2i mousePos) {
-    window.setView(window.getDefaultView());
+    window.setView(FIXED_UI_VIEW);
 
     RectangleShape overlay({ 1200.f, 800.f });
     overlay.setFillColor(Color(0, 0, 0, 160));
@@ -815,7 +848,7 @@ void DrawPauseMenu(RenderWindow& window, Font& font, Vector2i mousePos) {
 }
 
 void drawEndInfo(RenderWindow& window, Font& font, float finalTime, int coins, int kills, bool completed, int levelNum) {
-    View menuView = window.getDefaultView();
+    View menuView = FIXED_UI_VIEW;
     window.setView(menuView);
 
     RectangleShape overlay({ 1200.f, 800.f });
@@ -909,6 +942,7 @@ void initializeLevel(int levelNum, std::vector<std::tuple<int, int, int>>& mobTe
         else if (tile == 9) enemies.emplace_back(x * TileSize, y * TileSize, tx_SlimeMan, TileSize);
     }
     if (enemies.empty()) enemies.emplace_back(5.f * TileSize, 8.f * TileSize, tx_Slime, TileSize);
+    for (auto& e : enemies) e.loadAnimations("Sprites/slime_walk.png", "Sprites/slime_attack.png");
 }
 
 std::string FitTextToWidth(const Font& font, const std::string& str, unsigned charSize, float maxWidth) {
@@ -996,7 +1030,7 @@ void DrawLoginMenu(RenderWindow& window, Font& font, Vector2i mousePos,
     std::string& email, std::string& password,
     bool emailActive, bool passwordActive, const std::string& error)
 {
-    window.setView(window.getDefaultView());
+    window.setView(FIXED_UI_VIEW);
 
     Text title(font, "LOGIN", 52);
     title.setFillColor(Color(230, 220, 185));
@@ -1031,7 +1065,7 @@ void DrawLoginMenu(RenderWindow& window, Font& font, Vector2i mousePos,
 void DrawQuestsMenu(RenderWindow& window, Font& font, Vector2i mousePos,
     std::vector<ApiQuest>& quests)
 {
-    window.setView(window.getDefaultView());
+    window.setView(FIXED_UI_VIEW);
     Text title(font, "QUESTS", 48);
     title.setFillColor(Color::White);
     FloatRect tb = title.getLocalBounds();
@@ -1079,7 +1113,7 @@ void DrawQuestsMenu(RenderWindow& window, Font& font, Vector2i mousePos,
 void DrawLeaderboard(RenderWindow& window, Font& font, Vector2i mousePos,
     std::vector<ApiLeaderboardEntry>& entries, int levelNum)
 {
-    window.setView(window.getDefaultView());
+    window.setView(FIXED_UI_VIEW);
     Text title(font, "LEADERBOARD - LEVEL " + std::to_string(levelNum), 36);
     title.setFillColor(Color::White);
     FloatRect tb = title.getLocalBounds();
@@ -1106,7 +1140,7 @@ void DrawLeaderboard(RenderWindow& window, Font& font, Vector2i mousePos,
 void DrawShopMenu(RenderWindow& window, Font& font, Vector2i mousePos,
     std::vector<ApiSkin>& skins, bool shopLoaded)
 {
-    window.setView(window.getDefaultView());
+    window.setView(FIXED_UI_VIEW);
 
     Text title(font, "SHOP", 48);
     title.setFillColor(Color::White);
@@ -1185,6 +1219,8 @@ void DrawShopMenu(RenderWindow& window, Font& font, Vector2i mousePos,
 
 int main()
 {
+    SetProcessDPIAware();
+
     static int OriginalInterestingMAP[MAP_HEIGHT][MAP_WIDTH + 1] = {};
 
     std::vector<std::tuple<int, int, int>> mobTemplate;
@@ -1289,13 +1325,18 @@ int main()
     }
     if (enemies.empty()) enemies.emplace_back(5.f * TileSize, 8.f * TileSize, tx_Slime, TileSize);
 
+    for (auto& e : enemies) e.loadAnimations("Sprites/slime_walk.png", "Sprites/slime_attack.png");
+
     Font font;
     if (!font.openFromFile("Fonts/DigitalPixelV100-Regular.ttf")) {
         cout << "Font not found!" << endl;
         return -1;
     }
 
-    RenderWindow window(VideoMode({ 1200, 800 }), "PIXELRUN Game");
+    RenderWindow window(VideoMode({ 1200, 800 }), "PIXELRUN Game", Style::Titlebar | Style::Close);
+    window.setFramerateLimit(60);
+    view1 = View(FloatRect({ 0.f, 0.f }, { 1200.f, 800.f }));
+    window.setView(FIXED_UI_VIEW);
     Texture tx_Player("Sprites/AnimationSheet_Character.png");
     Player player(tx_Player, 100.f, 100.f);
     player.loadAnimationSheets(
@@ -1333,6 +1374,13 @@ int main()
             if (event->is<Event::Closed>())
                 window.close();
 
+            if (event->is<Event::Resized>()) {
+                Vector2f savedCenter = view1.getCenter();
+                view1 = View(FloatRect({ 0.f, 0.f }, { 1200.f, 800.f }));
+                view1.setCenter(savedCenter);
+                view1.setViewport(FloatRect({ 0.f, 0.f }, { 1.f, 1.f }));
+            }
+
             if (event->is<Event::KeyPressed>()) {
                 auto keyEvent = event->getIf<Event::KeyPressed>();
 
@@ -1365,7 +1413,30 @@ int main()
                 if (keyEvent->code == Keyboard::Key::Enter) {
                     if (gameState == GAME_OVER) {
                         gameState = PLAYING;
-                        initializeLevel(currentLevel, mobTemplate, enemies, tx_Slime, tx_SlimeMan, OriginalInterestingMAP, player);
+                        if (gUsingMap3) {
+                            float rMinX = 0.f, rMaxX = 9999.f, rMinY = 0.f, rMaxY = 9999.f;
+                            if (!gMap3.colliders.empty()) {
+                                rMinX = gMap3.colliders[0].x; rMaxX = gMap3.colliders[0].x + gMap3.colliders[0].width;
+                                rMinY = gMap3.colliders[0].y; rMaxY = gMap3.colliders[0].y + gMap3.colliders[0].height;
+                                for (auto& col : gMap3.colliders) {
+                                    rMinX = std::min(rMinX, col.x); rMaxX = std::max(rMaxX, col.x + col.width);
+                                    rMinY = std::min(rMinY, col.y); rMaxY = std::max(rMaxY, col.y + col.height);
+                                }
+                            }
+                            enemies.clear();
+                            for (auto& ent : gMap3.entities) {
+                                if (ent.type == ENT_ENEMY) {
+                                    if (ent.position.x < rMinX || ent.position.x > rMaxX ||
+                                        ent.position.y < rMinY || ent.position.y > rMaxY) continue;
+                                    sf::Texture& tex = (ent.textureId == 9) ? tx_SlimeMan : tx_Slime;
+                                    enemies.emplace_back(ent.position.x, ent.position.y, tex, MAP3_TILE_SIZE);
+                                }
+                            }
+                            for (auto& e : enemies) e.loadAnimations("Sprites/slime_walk.png", "Sprites/slime_attack.png");
+                        }
+                        else {
+                            initializeLevel(currentLevel, mobTemplate, enemies, tx_Slime, tx_SlimeMan, OriginalInterestingMAP, player);
+                        }
                         player.reset();
                         player.setLimitedDashMode(limitedDashMode);
                         time = 0.f;
@@ -1384,7 +1455,7 @@ int main()
 
             if (event->is<Event::MouseButtonPressed>()) {
                 auto mp = event->getIf<Event::MouseButtonPressed>()->position;
-                Vector2f mouse = Vector2f(window.mapPixelToCoords(mp, window.getDefaultView()));
+                Vector2f mouse = Vector2f(window.mapPixelToCoords(mp, FIXED_UI_VIEW));
 
                 if (gameState == MAIN_MENU) {
                     const float btnW = 240.f, btnH = 52.f, gap = 14.f;
@@ -1430,36 +1501,126 @@ int main()
                 else if (gameState == LEVELS_MENU) {
                     FloatRect level1({ 450.f, 250.f }, { 300.f, 50.f });
                     FloatRect level2({ 450.f, 320.f }, { 300.f, 50.f });
-                    FloatRect bestTimes({ 450.f, 390.f }, { 300.f, 50.f });
-                    FloatRect back({ 450.f, 510.f }, { 300.f, 50.f });
+                    FloatRect level3({ 450.f, 390.f }, { 300.f, 50.f });
+                    FloatRect bestTimes({ 450.f, 460.f }, { 300.f, 50.f });
+                    FloatRect back({ 450.f, 540.f }, { 300.f, 50.f });
 
                     if (level1.contains(mouse)) {
                         currentLevel = 1;
+                        gUsingMap3 = false;
                         gameState = PLAYING;
                         initializeLevel(currentLevel, mobTemplate, enemies, tx_Slime, tx_SlimeMan, OriginalInterestingMAP, player);
                         player.reset();
                         player.setLimitedDashMode(limitedDashMode);
-                        time = 0.f;
-                        levelCompleted = false;
-                        finalTime = 0.f;
-                        finalCoins = 0;
-                        finalKills = 0;
+                        time = 0.f; levelCompleted = false;
+                        finalTime = 0.f; finalCoins = 0; finalKills = 0;
                         StartdoorPosition = Vector2f(3600.f, 0.f);
                         EnddoorPosition = Vector2f(3651.f, 0.f);
                     }
                     else if (level2.contains(mouse)) {
                         currentLevel = 2;
+                        gUsingMap3 = false;
                         gameState = PLAYING;
                         initializeLevel(currentLevel, mobTemplate, enemies, tx_Slime, tx_SlimeMan, OriginalInterestingMAP, player);
                         player.reset();
                         player.setLimitedDashMode(limitedDashMode);
-                        time = 0.f;
-                        levelCompleted = false;
-                        finalTime = 0.f;
-                        finalCoins = 0;
-                        finalKills = 0;
+                        time = 0.f; levelCompleted = false;
+                        finalTime = 0.f; finalCoins = 0; finalKills = 0;
                         StartdoorPosition = Vector2f(4400.f, 0.f);
                         EnddoorPosition = Vector2f(4444.f, 0.f);
+                    }
+                    else if (level3.contains(mouse)) {
+                        currentLevel = 3;
+                        gUsingMap3 = true;
+                        gMap3 = GameMap();
+                        gMap3.load("Map3.bin");
+                        gMap3.textures.clear();
+                        gMap3.sheet.clear();
+                        struct TileDef { int id; std::string path; };
+                        std::vector<TileDef> tileDefs = {
+                            {1,  "Sprites/rock_6.png"},
+                            {4,  "Sprites/StoneBrick.png"},
+                            {5,  "Sprites/StoneBrickBack.png"},
+                            {52, "Sprites/rock_1.png"},
+                            {53, "Sprites/rock_2.png"},
+                            {54, "Sprites/rock_3.png"},
+                            {55, "Sprites/rock_4.png"},
+                            {56, "Sprites/rock_5.png"},
+                            {57, "Sprites/rock_6.png"},
+                            {58, "Sprites/rock_1.png"},
+                            {59, "Sprites/rock_2.png"},
+                            {60, "Sprites/rock_3.png"},
+                        };
+                        for (auto& td : tileDefs) {
+                            gMap3.textures[td.id] = sf::Texture();
+                            if (!gMap3.textures[td.id].loadFromFile(td.path))
+                                std::cout << "[Map3] WARN can't load: " << td.path << "\n";
+                            else
+                                std::cout << "[Map3] OK tile " << td.id << " <- " << td.path << "\n";
+                        }
+                        for (auto& [id, tx] : gMap3.textures)
+                            gMap3.sheet.emplace(id, sf::Sprite(tx));
+
+                        memset(MAP, -1, sizeof(MAP));
+                        memset(MobMAP, -1, sizeof(MobMAP));
+                        memset(InterestingMAP, -1, sizeof(InterestingMAP));
+                        memset(BackgroundMAP, -1, sizeof(BackgroundMAP));
+
+                        GMP::buildMapFromColliders<MAP3_H, MAP3_W>(MAP3_TILES, gMap3, 32.f);
+
+                        float mapMinX = 0.f, mapMaxX = 9999.f, mapMinY = 0.f, mapMaxY = 9999.f;
+                        if (!gMap3.colliders.empty()) {
+                            mapMinX = gMap3.colliders[0].x;
+                            mapMaxX = gMap3.colliders[0].x + gMap3.colliders[0].width;
+                            mapMinY = gMap3.colliders[0].y;
+                            mapMaxY = gMap3.colliders[0].y + gMap3.colliders[0].height;
+                            for (auto& col : gMap3.colliders) {
+                                mapMinX = std::min(mapMinX, col.x);
+                                mapMaxX = std::max(mapMaxX, col.x + col.width);
+                                mapMinY = std::min(mapMinY, col.y);
+                                mapMaxY = std::max(mapMaxY, col.y + col.height);
+                            }
+                        }
+
+                        enemies.clear();
+                        for (auto& ent : gMap3.entities) {
+                            if (ent.type == ENT_ENEMY) {
+                                if (ent.position.x < mapMinX || ent.position.x > mapMaxX ||
+                                    ent.position.y < mapMinY || ent.position.y > mapMaxY) {
+                                    std::cout << "[Map3] Skipping out-of-bounds enemy at ("
+                                        << ent.position.x << "," << ent.position.y << ")\n";
+                                    continue;
+                                }
+                                sf::Texture& tex = (ent.textureId == 9) ? tx_SlimeMan : tx_Slime;
+                                enemies.emplace_back(ent.position.x, ent.position.y, tex, MAP3_TILE_SIZE);
+                            }
+                        }
+                        for (auto& e : enemies) e.loadAnimations("Sprites/slime_walk.png", "Sprites/slime_attack.png");
+
+                        auto spawn = gMap3.getSafeSpawn(30.f, 40.f);
+                        float playerH = 40.f;
+                        float bestFloor = spawn.y;
+                        for (auto& col : gMap3.colliders) {
+                            if (spawn.x + 30.f > col.x && spawn.x < col.x + col.width) {
+                                if (col.y >= spawn.y && col.y < bestFloor + 200.f) {
+                                    bestFloor = col.y;
+                                }
+                            }
+                        }
+                        if (bestFloor != spawn.y)
+                            spawn.y = bestFloor - playerH;
+                        player.setSpawnPoint(spawn.x, spawn.y);
+                        player.reset();
+                        player.setLimitedDashMode(limitedDashMode);
+                        view1 = View(FloatRect({ 0.f, 0.f }, { 1200.f, 800.f }));
+                        view1.setCenter(spawn);
+                        gameState = PLAYING;
+                        time = 0.f; levelCompleted = false;
+                        finalTime = 0.f; finalCoins = 0; finalKills = 0;
+                        enteringDoor = false;
+                        sf::Vector2f fin = gMap3.getFinishPoint();
+                        StartdoorPosition = fin;
+                        EnddoorPosition = { fin.x + MAP3_TILE_SIZE, fin.y + MAP3_TILE_SIZE };
                     }
                     else if (bestTimes.contains(mouse)) {
                         gameState = BEST_TIMES_MENU;
@@ -1616,29 +1777,62 @@ int main()
             }
         }
 
-        float dt = clock.restart().asSeconds();
+        float dt = std::min(clock.restart().asSeconds(), 1.f / 30.f);
 
         if (gameState == PLAYING) {
-            if (player.getHasKey() && player.getPosition().x > StartdoorPosition.x && player.getPosition().x < EnddoorPosition.x)
-                enteringDoor = true;
+            if (gUsingMap3) {
+                sf::Vector2f ppos3 = player.getPosition();
+                sf::Vector2f fin3 = gMap3.getFinishPoint();
+                sf::Vector2f playerCenter = { ppos3.x + 15.f, ppos3.y + 20.f };
+                sf::FloatRect finRect(fin3, { (float)MAP3_TILE_SIZE * 1.5f, (float)MAP3_TILE_SIZE * 2.f });
+                if (fin3.x > 0 && finRect.contains(playerCenter)) {
+                    levelCompleted = true;
+                    finalTime = time;
+                    finalCoins = player.getCoins();
+                    finalKills = 0;
+                    for (auto& e : enemies) if (!e.isAlive()) finalKills++;
+                    LevelRecord nr(currentLevel, finalTime, finalCoins, finalKills, true);
+                    saveBestRecord(nr); loadBestRecords();
+                    if (ApiClient::instance().player.loggedIn)
+                        ApiClient::instance().submitRecordAsync(currentLevel, finalTime, finalCoins, finalKills);
+                    gameState = GAME_OVER;
+                }
+            }
+            else {
+                if (player.getHasKey() && player.getPosition().x > StartdoorPosition.x && player.getPosition().x < EnddoorPosition.x)
+                    enteringDoor = true;
+            }
+
             if (!enteringDoor) {
-                for (auto& e : enemies) {
-                    e.update(dt, player.getPosition(), MAP, MAP_WIDTH, MAP_HEIGHT, TileSize);
+                if (gUsingMap3) {
+                    for (auto& e : enemies)
+                        e.update(dt, player.getPosition(), MAP3_TILES, MAP3_W, MAP3_H, MAP3_TILE_SIZE);
+                }
+                else {
+                    for (auto& e : enemies)
+                        e.update(dt, player.getPosition(), MAP, MAP_WIDTH, MAP_HEIGHT, TileSize);
                 }
 
-                player.update(dt, MAP, MAP_WIDTH, MAP_HEIGHT, TileSize, view1, window, MobMAP, InterestingMAP, BackgroundMAP, enemies);
+                if (gUsingMap3) {
+                    player.update(dt, gMap3, MAP3_TILE_SIZE, view1, window, enemies);
+                }
+                else {
+                    player.update(dt, MAP, MAP_WIDTH, MAP_HEIGHT, TileSize, view1, window, MobMAP, InterestingMAP, BackgroundMAP, enemies);
+                }
 
-                sf::Vector2f ppos = player.getPosition();
-                sf::Vector2f pcenter = { ppos.x + 15.f, ppos.y + 20.f };
-                int doorTx = static_cast<int>(pcenter.x / TileSize);
-                int doorTy = static_cast<int>(pcenter.y / TileSize);
-                if (doorTx >= 0 && doorTx < MAP_WIDTH && doorTy >= 0 && doorTy < MAP_HEIGHT) {
-                    if (MAP[doorTy][doorTx] == 13) {
-                        enteringDoor = true;
-                        enterTimer = ENTER_DURATION;
-                        enterViewStartCenter = view1.getCenter();
-                        enterViewTargetCenter = Vector2f((doorTx + 0.5f) * TileSize, (doorTy + 0.5f) * TileSize);
-                        enterViewStartSize = view1.getSize();
+                if (!gUsingMap3) {
+                    sf::Vector2f ppos = player.getPosition();
+                    sf::Vector2f pcenter = { ppos.x + 15.f, ppos.y + 20.f };
+                    int doorTx = static_cast<int>(pcenter.x / TileSize);
+                    int doorTy = static_cast<int>(pcenter.y / TileSize);
+                    if (doorTx >= 0 && doorTx < MAP_WIDTH && doorTy >= 0 && doorTy < MAP_HEIGHT) {
+                        if (MAP[doorTy][doorTx] == 13) {
+                            enteringDoor = true;
+                            enterTimer = ENTER_DURATION;
+                            enterViewStartCenter = view1.getCenter();
+                            enterViewTargetCenter = Vector2f((doorTx + 0.5f) * TileSize, (doorTy + 0.5f) * TileSize);
+                            enterViewStartSize = view1.getSize();
+                        }
                     }
                 }
 
@@ -1656,14 +1850,14 @@ int main()
                     Vector2f viewCenter = view1.getCenter();
                     viewCenter.x += (playerPos.x - viewCenter.x) * 0.1f;
                     viewCenter.y += (playerPos.y - viewCenter.y) * 0.1f;
-                    float mapWidthPx = MAP_WIDTH * TileSize;
-                    float mapHeightPx = MAP_HEIGHT * TileSize;
-                    float halfWidth = view1.getSize().x / 2.f;
-                    float halfHeight = view1.getSize().y / 2.f;
-                    if (viewCenter.x < halfWidth) viewCenter.x = halfWidth;
-                    if (viewCenter.y < halfHeight) viewCenter.y = halfHeight;
-                    if (viewCenter.x > mapWidthPx - halfWidth) viewCenter.x = mapWidthPx - halfWidth;
-                    if (viewCenter.y > mapHeightPx - halfHeight) viewCenter.y = mapHeightPx - halfHeight;
+                    float mapWpx = gUsingMap3 ? GMAP_W * MAP3_TILE_SIZE : MAP_WIDTH * TileSize;
+                    float mapHpx = gUsingMap3 ? GMAP_H * MAP3_TILE_SIZE : MAP_HEIGHT * TileSize;
+                    float halfW = view1.getSize().x / 2.f;
+                    float halfH = view1.getSize().y / 2.f;
+                    if (viewCenter.x < halfW)          viewCenter.x = halfW;
+                    if (viewCenter.y < halfH)          viewCenter.y = halfH;
+                    if (viewCenter.x > mapWpx - halfW) viewCenter.x = mapWpx - halfW;
+                    if (viewCenter.y > mapHpx - halfH) viewCenter.y = mapHpx - halfH;
                     view1.setCenter(viewCenter);
                 }
             }
@@ -1704,7 +1898,7 @@ int main()
             time += dt;
         }
 
-        window.clear(Color::Cyan);
+        window.clear(gUsingMap3 ? Color::Black : Color::Cyan);
 
         if (gameState == MAIN_MENU || gameState == LEVELS_MENU ||
             gameState == CREATORS_MENU || gameState == SETTINGS_MENU ||
@@ -1734,7 +1928,9 @@ int main()
             }
         }
 
-        Vector2i mousePos = Mouse::getPosition(window);
+        Vector2i mousePosRaw = Mouse::getPosition(window);
+        Vector2f mousePosF = window.mapPixelToCoords(mousePosRaw, FIXED_UI_VIEW);
+        Vector2i mousePos = Vector2i(static_cast<int>(mousePosF.x), static_cast<int>(mousePosF.y));
         if (gameState == MAIN_MENU) {
             DrawMainMenu(window, font, mousePos);
         }
@@ -1752,15 +1948,35 @@ int main()
         }
         else if (gameState == PLAYING) {
             window.setView(view1);
-            drawBg(window, spriteSheet);
-            drawMap(window, spriteSheet);
-            drawMob(window, spriteSheet);
-            drawInteresting(window, spriteSheet);
+            if (gUsingMap3) {
+                gMap3.drawBackground(window, MAP3_TILE_SIZE, view1);
+                gMap3.drawTiles(window, MAP3_TILE_SIZE, view1);
+                for (const auto& ent : gMap3.entities) {
+                    int sprId = -1;
+                    if (ent.type == ENT_FINISH) sprId = 13;
+                    else if (ent.type == ENT_SPAWNPOINT || ent.type == ENT_STARTPOINT) sprId = 12;
+                    else if (ent.type == ENT_COIN) sprId = 7;
+                    if (sprId >= 0) {
+                        auto it = spriteSheet.find(sprId);
+                        if (it != spriteSheet.end()) {
+                            it->second.setPosition(ent.position);
+                            window.draw(it->second);
+                        }
+                    }
+                }
+                if (debugMode) gMap3.drawColliders(window);
+            }
+            else {
+                drawBg(window, spriteSheet);
+                drawMap(window, spriteSheet);
+                drawMob(window, spriteSheet);
+                drawInteresting(window, spriteSheet);
+            }
 
             for (auto& e : enemies) e.draw(window, debugMode);
 
             player.draw(window, view1, font, debugMode);
-            if (debugMode) {
+            if (debugMode && !gUsingMap3) {
                 Vector2f tl = view1.getCenter() - view1.getSize() / 2.f;
                 Vector2f br = view1.getCenter() + view1.getSize() / 2.f;
                 int sx = max(0, (int)(tl.x / TileSize));
@@ -1782,21 +1998,66 @@ int main()
         }
         if (gameState == PAUSED) {
             window.setView(view1);
-            drawBg(window, spriteSheet);
-            drawMap(window, spriteSheet);
-            drawMob(window, spriteSheet);
-            drawInteresting(window, spriteSheet);
+            if (gUsingMap3) {
+                gMap3.drawBackground(window, MAP3_TILE_SIZE, view1);
+                gMap3.drawTiles(window, MAP3_TILE_SIZE, view1);
+                for (const auto& ent : gMap3.entities) {
+                    int sprId = -1;
+                    if (ent.type == ENT_FINISH) sprId = 13;
+                    else if (ent.type == ENT_SPAWNPOINT || ent.type == ENT_STARTPOINT) sprId = 12;
+                    else if (ent.type == ENT_COIN) sprId = 7;
+                    if (sprId >= 0) {
+                        auto it = spriteSheet.find(sprId);
+                        if (it != spriteSheet.end()) {
+                            it->second.setPosition(ent.position);
+                            window.draw(it->second);
+                        }
+                    }
+                }
+            }
+            else {
+                drawBg(window, spriteSheet);
+                drawMap(window, spriteSheet);
+                drawMob(window, spriteSheet);
+                drawInteresting(window, spriteSheet);
+            }
             for (auto& e : enemies) e.draw(window, debugMode);
             player.draw(window, view1, font, debugMode, true);
             DrawPauseMenu(window, font, mousePos);
         }
         else if (gameState == GAME_OVER) {
-            player.update(dt, MAP, MAP_WIDTH, MAP_HEIGHT, TileSize, view1, window, MobMAP, InterestingMAP, BackgroundMAP, enemies);
+            if (!levelCompleted) {
+                if (gUsingMap3) {
+                    player.update(dt, gMap3, MAP3_TILE_SIZE, view1, window, enemies);
+                }
+                else {
+                    player.update(dt, MAP, MAP_WIDTH, MAP_HEIGHT, TileSize, view1, window, MobMAP, InterestingMAP, BackgroundMAP, enemies);
+                }
+            }
             window.setView(view1);
-            drawBg(window, spriteSheet);
-            drawMap(window, spriteSheet);
-            drawMob(window, spriteSheet);
-            drawInteresting(window, spriteSheet);
+            if (gUsingMap3) {
+                gMap3.drawBackground(window, MAP3_TILE_SIZE, view1);
+                gMap3.drawTiles(window, MAP3_TILE_SIZE, view1);
+                for (const auto& ent : gMap3.entities) {
+                    int sprId = -1;
+                    if (ent.type == ENT_FINISH) sprId = 13;
+                    else if (ent.type == ENT_SPAWNPOINT || ent.type == ENT_STARTPOINT) sprId = 12;
+                    else if (ent.type == ENT_COIN) sprId = 7;
+                    if (sprId >= 0) {
+                        auto it = spriteSheet.find(sprId);
+                        if (it != spriteSheet.end()) {
+                            it->second.setPosition(ent.position);
+                            window.draw(it->second);
+                        }
+                    }
+                }
+            }
+            else {
+                drawBg(window, spriteSheet);
+                drawMap(window, spriteSheet);
+                drawMob(window, spriteSheet);
+                drawInteresting(window, spriteSheet);
+            }
 
             for (auto& e : enemies) e.draw(window);
 
@@ -1812,7 +2073,7 @@ int main()
             DrawLoginMenu(window, font, mousePos, loginEmail, loginPassword,
                 loginEmailActive, loginPasswordActive, loginError);
 
-            window.setView(window.getDefaultView());
+            window.setView(FIXED_UI_VIEW);
 
             if (ApiClient::instance().status.load() == ApiStatus::Loading) {
                 RectangleShape overlay({ 1200.f, 800.f });
@@ -1834,7 +2095,7 @@ int main()
         else if (gameState == QUESTS_MENU) {
             DrawQuestsMenu(window, font, mousePos, quests);
 
-            window.setView(window.getDefaultView());
+            window.setView(FIXED_UI_VIEW);
 
             if (!questsLoaded && ApiClient::instance().player.loggedIn) {
                 Text loadTxt(font, "Loading quests...", 24);
@@ -1857,7 +2118,7 @@ int main()
         else if (gameState == SHOP_MENU) {
             DrawShopMenu(window, font, mousePos, shopSkins, shopLoaded);
 
-            window.setView(window.getDefaultView());
+            window.setView(FIXED_UI_VIEW);
             std::string coinsStr = ApiClient::instance().player.loggedIn
                 ? ("Coins: " + std::to_string(ApiClient::instance().player.coins))
                 : "Login to buy skins";
@@ -1875,7 +2136,7 @@ int main()
         }
 
         if (gameState == MAIN_MENU) {
-            window.setView(window.getDefaultView());
+            window.setView(FIXED_UI_VIEW);
             std::string authStr = ApiClient::instance().player.loggedIn
                 ? ("[ " + ApiClient::instance().player.username + "  |  "
                     + std::to_string(ApiClient::instance().player.coins) + " coins ]")

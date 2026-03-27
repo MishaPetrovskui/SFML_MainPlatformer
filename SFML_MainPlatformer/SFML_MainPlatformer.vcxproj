@@ -133,11 +133,13 @@
   <ItemGroup>
     <ClCompile Include="ApiClient.h" />
     <ClCompile Include="Enemy.cpp" />
+    <ClCompile Include="GameMap_Physics.h" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="Player.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Enemy.h" />
+    <ClInclude Include="Gamemap.h" />
     <ClInclude Include="Player.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

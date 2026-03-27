@@ -5,23 +5,22 @@
 #include <map>
 #include <vector>
 #include <string>
-// ApiClient.h включается в Player.cpp (не здесь, чтобы избежать циклических зависимостей)
-// ВАЖНО: using namespace sf/std убраны из заголовка — они конфликтовали с Windows byte typedef.
-// В Player.cpp они по-прежнему есть локально если нужны.
 
 class Enemy;
+class GameMap;
 
 class Player {
 private:
     sf::RectangleShape shape;
     sf::Sprite sprite;
-    sf::Texture texture;       // legacy / fallback single-sheet
+    sf::Texture texture;
     sf::Vector2f velocity;
     float speed;
     float gravity;
     bool onGround;
     bool isSliding;
-    int wallDirection;
+    int  wallDirection;
+    bool wallBothSides = false;
     float stamina;
     float maxStamina;
     float staminaConsumption;
@@ -40,7 +39,7 @@ private:
     float attackCooldown;
     float attackTimer;
     int attackDamage;
-    bool attackHitDealt = false;  // true after hit frame processed
+    bool attackHitDealt = false;
     float lavaDamageAccum;
     float spikeInvulTimer;
     float spikeInvulDuration;
@@ -50,6 +49,8 @@ private:
     float hitFreezeTimer = 0.f;
     static constexpr float DAMAGE_FLASH_DURATION = 0.25f;
     static constexpr float HIT_FREEZE_DURATION = 0.15f;
+    sf::Vector2f deathSpritePos;
+    bool deathPosSet = false;
     sf::Keyboard::Key attackKey;
     sf::Vector2f attackDir = { 1.f, 0.f };
     std::string currentAnimation;
@@ -66,23 +67,16 @@ private:
     float coyoteTimer;
     float jumpBufferTimer;
     float wallJumpLockTimer;
-    static constexpr float COYOTE_TIME = 0.12f;
-    static constexpr float JUMP_BUFFER_TIME = 0.15f;
-    static constexpr float WALL_JUMP_LOCK_TIME = 0.22f;
-    static constexpr float JUMP_VELOCITY = 420.f;
-    static constexpr float JUMP_CUT_VELOCITY = 170.f;
+    static constexpr float COYOTE_TIME = 0.18f;
+    static constexpr float JUMP_BUFFER_TIME = 0.22f;
+    static constexpr float WALL_JUMP_LOCK_TIME = 0.08f;
+    static constexpr float JUMP_VELOCITY = 440.f;
+    static constexpr float JUMP_CUT_VELOCITY = 150.f;
     static constexpr float LEDGE_FORGIVENESS = 5.f;
-    // Порог скорости падения для смены анимации на Fall.
-    // 0 = переключаться как только velocity.y стала положительной (летим вниз).
-    // Таймер airTime отвечает за задержку чтобы маленькие прыжки не мелькали.
-    static constexpr float FALL_VELOCITY_THRESHOLD = 250.f; // не используется напрямую
-    // Сколько секунд нужно лететь вниз прежде чем включить Fall
-    static constexpr float FALL_DELAY = 0.08f;
-    // Polling квестов: тянем обновлённые данные с сервера
+    float fallTimer = 0.f;
+    bool  jumpAnimDone = false;
     float questPollTimer = 0.f;
-    static constexpr float QUEST_POLL_INTERVAL = 15.f; // секунд
-    float fallTimer = 0.f; // сколько секунд падаем вниз (velocity.y > 0)
-    // Новая система анимаций — каждая анимация хранит свою текстуру и фреймы
+    static constexpr float QUEST_POLL_INTERVAL = 15.f;
     struct Animation {
         sf::Texture texture;
         std::vector<sf::IntRect> frames;
@@ -90,6 +84,7 @@ private:
     std::map<std::string, Animation> animations;
 
     bool checkWallContact(int map[][501], int mapWidth, int mapHeight, float tileSize);
+    bool checkWallContactGMap(const GameMap& gmap);
     void updateAnimation(float dt);
     void setAnimation(const std::string& animName);
     sf::FloatRect getInnerBounds() const;
@@ -99,16 +94,27 @@ public:
     void loadAnimationSheets(const std::string& walkPath,
         const std::string& attackPath,
         const std::string& idlePath,
-        const std::string& fallPath = "");  // пустая строка = переиспользовать jump
+        const std::string& fallPath = "",
+        const std::string& jumpPath = "");
     void update(float dt, int map[][501], int mapWidth, int mapHeight, float tileSize, sf::View& view1, sf::RenderWindow& window,
         int mobMap[][501], int interestingMap[][501], int backgroundMap[][501], std::vector<Enemy>& enemies);
+
+    void update(float dt, const GameMap& gmap, float tileSize,
+        sf::View& view1, sf::RenderWindow& window,
+        std::vector<Enemy>& enemies);
     void draw(sf::RenderWindow& window, sf::View& view1, sf::Font& font, bool debugMode = false, bool pauseMode = false);
     sf::Vector2f getPosition() const { return shape.getPosition(); }
+    sf::Vector2f getVelocity() const { return velocity; }
+    void setVelocity(sf::Vector2f v) { velocity = v; }
     int getPositionX() const { return static_cast<int>(shape.getPosition().x); }
     int getPositionY() const { return static_cast<int>(shape.getPosition().y); }
     void reset();
     bool isAlive() const { return hp > 0; }
-    void applyDamage(int dmg) { hp -= dmg; if (hp < 0) hp = 0; damageFlashTimer = DAMAGE_FLASH_DURATION; }
+    void applyDamage(int dmg) {
+        hp -= dmg;
+        if (hp < 0) hp = 0;
+        damageFlashTimer = DAMAGE_FLASH_DURATION;
+    }
     int getHP() const { return hp; }
     int getCoins() const { return coins; }
     float getStamina() const { return stamina; }
@@ -118,6 +124,8 @@ public:
     bool hasFinishedDeathAnimation() const { return deathAnimationFinished; }
     bool getHasKey() const { return hasKey; }
     void setSpawnPoint(float x, float y);
+    void setPosition(float x, float y) { shape.setPosition({ x, y }); }
+    void setOnGround(bool v) { onGround = v; }
     void setLimitedDashMode(bool v) { limitedDashMode = v; if (!limitedDashMode) dashAvailable = true; }
     bool getLimitedDashMode() const { return limitedDashMode; }
 };

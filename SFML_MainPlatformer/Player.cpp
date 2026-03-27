@@ -1,9 +1,9 @@
 #include "Player.h"
 #include "Enemy.h"
+#include "Gamemap.h"
 #include "ApiClient.h"
 #include <algorithm>
 
-// using namespace в .cpp — нормально, конфликт byte был только из-за заголовка
 using namespace sf;
 using namespace std;
 
@@ -78,9 +78,9 @@ Player::Player(sf::Texture _tx, float startX, float startY) : texture(_tx), spri
 void Player::loadAnimationSheets(const std::string& walkPath,
     const std::string& attackPath,
     const std::string& idlePath,
-    const std::string& fallPath)
+    const std::string& fallPath,
+    const std::string& jumpPath)
 {
-    // --- walkToRight / walkToLeft ---
     animations["walkToRight"].texture.loadFromFile(walkPath);
     animations["walkToRight"].frames = {
         IntRect({0,   0}, {128, 128}), IntRect({128,  0}, {128, 128}),
@@ -92,11 +92,9 @@ void Player::loadAnimationSheets(const std::string& walkPath,
         IntRect({1536,0}, {128, 128}), IntRect({1664, 0}, {128, 128}),
         IntRect({1792,0}, {128, 128}),
     };
-    // walkToLeft — та же текстура, те же фреймы (флип через setScale)
     animations["walkToLeft"].texture.loadFromFile(walkPath);
     animations["walkToLeft"].frames = animations["walkToRight"].frames;
 
-    // --- Attack ---
     animations["Attack"].texture.loadFromFile(attackPath);
     animations["Attack"].frames = {
         IntRect({0,   0}, {128, 128}), IntRect({128, 0}, {128, 128}),
@@ -106,7 +104,6 @@ void Player::loadAnimationSheets(const std::string& walkPath,
         IntRect({1024,0}, {128, 128}),
     };
 
-    // --- Idle ---
     animations["idle"].texture.loadFromFile(idlePath);
     animations["idle"].frames = {
         IntRect({0,   0}, {128, 128}), IntRect({128,  0}, {128, 128}),
@@ -119,17 +116,28 @@ void Player::loadAnimationSheets(const std::string& walkPath,
         IntRect({1792,0}, {128, 128}),
     };
 
-    // --- Jump / Death — переиспользуем idle ---
-    animations["Jump"].texture.loadFromFile(idlePath);
-    animations["Jump"].frames = animations["idle"].frames;
+    if (!jumpPath.empty()) {
+        animations["Jump"].texture.loadFromFile(jumpPath);
+        auto& tex = animations["Jump"].texture;
+        int frameCount = (int)(tex.getSize().x / 128);
+        if (frameCount < 1) frameCount = 1;
+        for (int i = 0; i < frameCount; ++i)
+            animations["Jump"].frames.push_back(IntRect({ i * 128, 0 }, { 128, 128 }));
+    }
+    else {
+        animations["Jump"].texture.loadFromFile(idlePath);
+        animations["Jump"].frames = {
+            IntRect({0,   0}, {128, 128}),
+            IntRect({128, 0}, {128, 128}),
+            IntRect({256, 0}, {128, 128}),
+            IntRect({384, 0}, {128, 128}),
+            IntRect({512, 0}, {128, 128}),
+            IntRect({640, 0}, {128, 128}),
+        };
+    }
 
-    // --- Fall ---
-    // Если есть fall.png — грузим его (128×128 фреймы в ряд, любое кол-во).
-    // Иначе fallback: первые 4 фрейма idle (нейтральная поза в воздухе).
-    // Имя файла: "fall.png" — тот же формат что walk/idle/attack.
     if (!fallPath.empty()) {
         animations["Fall"].texture.loadFromFile(fallPath);
-        // Читаем столько фреймов сколько есть в файле — по ширине текстуры
         auto& fallTex = animations["Fall"].texture;
         int frameCount = (int)(fallTex.getSize().x / 128);
         if (frameCount < 1) frameCount = 1;
@@ -137,7 +145,6 @@ void Player::loadAnimationSheets(const std::string& walkPath,
             animations["Fall"].frames.push_back(IntRect({ i * 128, 0 }, { 128, 128 }));
     }
     else {
-        // Fallback: берём первые 4 фрейма idle — персонаж висит в нейтральной позе
         animations["Fall"].texture.loadFromFile(idlePath);
         animations["Fall"].frames = {
             IntRect({0,   0}, {128, 128}),
@@ -147,8 +154,19 @@ void Player::loadAnimationSheets(const std::string& walkPath,
         };
     }
 
-    animations["Death"].texture.loadFromFile(walkPath);
-    animations["Death"].frames = { IntRect({0, 0}, {128, 128}) };
+    animations["Death"].texture.loadFromFile("Sprites/player_death.png");
+    animations["Death"].frames = {
+        IntRect({0,    0}, {128, 128}), IntRect({128,  0}, {128, 128}),
+        IntRect({256,  0}, {128, 128}), IntRect({384,  0}, {128, 128}),
+        IntRect({512,  0}, {128, 128}), IntRect({640,  0}, {128, 128}),
+        IntRect({768,  0}, {128, 128}), IntRect({896,  0}, {128, 128}),
+        IntRect({1024, 0}, {128, 128}), /*IntRect({1152, 0}, {128, 128}),*/
+        IntRect({1280, 0}, {128, 128}), IntRect({1408, 0}, {128, 128}),
+        /*IntRect({1536, 0}, {128, 128}),*/ IntRect({1664, 0}, {128, 128}),
+        IntRect({1792, 0}, {128, 128}), IntRect({1920, 0}, {128, 128}),
+        IntRect({2048, 0}, {128, 128}), IntRect({2176, 0}, {128, 128}),
+        IntRect({2304, 0}, {128, 128}),
+    };
     sprite.setTexture(animations["idle"].texture, true);
     sprite.setTextureRect(animations["idle"].frames[0]);
 }
@@ -171,6 +189,7 @@ bool Player::checkWallContact(int map[][501], int mapWidth, int mapHeight, float
     float ph = playerBounds.size.y;
 
     wallDirection = 0;
+    bool leftWall = false, rightWall = false;
 
     for (int y = 0; y < mapHeight; ++y) {
         for (int x = 0; x < mapWidth; ++x) {
@@ -181,11 +200,16 @@ bool Player::checkWallContact(int map[][501], int mapWidth, int mapHeight, float
             float tw = tileSize;
             float th = tileSize;
             if (py + ph > ty && py < ty + th) {
-                if (std::abs(px - (tx + tw)) < 5.f) { wallDirection = -1; return true; }
-                if (std::abs((px + pw) - tx) < 5.f) { wallDirection = 1; return true; }
+                if (std::abs(px - (tx + tw)) < 5.f) leftWall = true;
+                if (std::abs((px + pw) - tx) < 5.f) rightWall = true;
             }
         }
     }
+
+    wallBothSides = leftWall && rightWall;
+
+    if (leftWall) { wallDirection = -1; return true; }
+    if (rightWall) { wallDirection = 1; return true; }
     return false;
 }
 
@@ -195,7 +219,9 @@ void Player::updateAnimation(float dt) {
     if (anim.frames.empty()) return;
 
     float spd = (currentAnimation == "idle") ? 0.12f
-        : (currentAnimation == "Fall") ? 0.07f   // быстрее — вступление проходит за ~0.5с
+        : (currentAnimation == "Jump") ? 0.06f
+        : (currentAnimation == "Fall") ? 0.07f
+        : (currentAnimation == "Death") ? 0.085f
         : animationSpeed;
     animationTimer += dt;
     if (animationTimer >= spd) {
@@ -208,13 +234,16 @@ void Player::updateAnimation(float dt) {
                 deathAnimationFinished = true;
             }
         }
+        else if (currentAnimation == "Jump") {
+            if (animationFrame >= (int)anim.frames.size()) {
+                animationFrame = (int)anim.frames.size() - 1;
+                jumpAnimDone = true;
+            }
+        }
         else if (currentAnimation == "Fall") {
             int total = (int)anim.frames.size();
             if (animationFrame >= total) {
-                // Вступление закончено — зацикливаем последние 4 фрейма
-                // Если фреймов меньше 4 — зацикливаем последний один
                 int loopStart = std::max(0, total - 4);
-                // Вычисляем позицию внутри петли чтобы не прыгать на начало
                 int loopLen = total - loopStart;
                 animationFrame = loopStart + ((animationFrame - loopStart) % loopLen);
             }
@@ -237,6 +266,7 @@ void Player::setAnimation(const string& animName) {
     animationFrame = 0;
     animationTimer = 0.f;
     if (animName == "Death") deathAnimationFinished = false;
+    if (animName == "Jump")  jumpAnimDone = false;
 
     Animation& anim = animations[animName];
     sprite.setTexture(anim.texture, true);
@@ -250,9 +280,66 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
     std::vector<Enemy>& enemies)
 {
     if (hp <= 0) {
+        if (!deathPosSet) {
+            deathSpritePos = shape.getPosition();
+            velocity.x *= 0.3f;
+            deathPosSet = true;
+        }
+
+        if (!onGround) {
+            velocity.y += gravity * dt;
+            if (velocity.y > 1000.f) velocity.y = 1000.f;
+            velocity.x *= std::pow(0.85f, dt * 60.f);
+
+            sf::Vector2f nextPos = deathSpritePos + velocity * dt;
+            float px = nextPos.x;
+            float py = nextPos.y;
+            float pw = shape.getSize().x;
+            float ph = shape.getSize().y;
+
+            onGround = false;
+            for (int y = 0; y < mapHeight; ++y) {
+                for (int x = 0; x < mapWidth; ++x) {
+                    if (map[y][x] == -1) continue;
+                    float tx = x * tileSize, ty = y * tileSize;
+                    float overlapX = std::min(px + pw, tx + tileSize) - std::max(px, tx);
+                    float overlapY = std::min(py + ph, ty + tileSize) - std::max(py, ty);
+                    if (overlapX > 0.f && overlapY > 0.f) {
+                        if (overlapX >= overlapY) {
+                            if (py < ty) {
+                                nextPos.y -= overlapY;
+                                velocity.y = 0.f;
+                                velocity.x = 0.f;
+                                onGround = true;
+                                py = nextPos.y;
+                            }
+                        }
+                        else {
+                            if (px < tx) nextPos.x -= overlapX;
+                            else         nextPos.x += overlapX;
+                            velocity.x = 0.f;
+                            px = nextPos.x;
+                        }
+                    }
+                }
+            }
+            deathSpritePos = nextPos;
+            shape.setPosition(deathSpritePos);
+        }
+
         setAnimation("Death");
         updateAnimation(dt);
-        sprite.setPosition(shape.getPosition());
+
+        const float sprScale = 0.9f;
+        sprite.setOrigin({ 44.5f, 96.f });
+        sprite.setScale(facingRight
+            ? sf::Vector2f{ sprScale, sprScale }
+        : sf::Vector2f{ -sprScale, sprScale });
+
+        sf::Vector2f dp = deathSpritePos;
+        dp.x += shape.getSize().x * 0.5f;
+        dp.y += shape.getSize().y;
+        sprite.setPosition(dp);
         return;
     }
 
@@ -263,21 +350,13 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
     if (spikeInvulTimer > 0.f) spikeInvulTimer -= dt;
     if (wallJumpLockTimer > 0.f) wallJumpLockTimer -= dt;
 
-    // Quest polling: каждые QUEST_POLL_INTERVAL секунд запрашиваем квесты с сервера.
-    // Это означает что если игрок заклеймил награду на сайте — игра подхватит
-    // обновлённое состояние без перелогина. Реализовано через ApiClient.
     questPollTimer += dt;
     if (questPollTimer >= QUEST_POLL_INTERVAL) {
         questPollTimer = 0.f;
-        // Вызываем refresh через ApiClient — он обновит coins и quests асинхронно
         auto& api = ApiClient::instance();
         if (api.player.loggedIn) {
-            // Перезапрашиваем данные игрока (монеты могут измениться после клейма на сайте)
-            api.getQuestsAsync([](std::vector<ApiQuest>) {});  // просто обновляем кэш
-            // Синхронизируем монеты через /api/player/me
+            api.getQuestsAsync([](std::vector<ApiQuest>) {});
             std::thread([&api]() {
-                // Используем внутренний getAuth — публичный только через friend или добавить метод
-                // Смотри ниже: нужно добавить refreshPlayerAsync в ApiClient
                 api.refreshPlayerAsync();
                 }).detach();
         }
@@ -334,23 +413,34 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
         bool touchingWall = checkWallContact(map, mapWidth, mapHeight, tileSize);
 
         if (touchingWall && !onGround && velocity.y > 0.f && wallJumpLockTimer <= 0.f) {
-            bool pressingIntoWall =
-                (wallDirection == -1 && (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::A) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Left))) ||
-                (wallDirection == 1 && (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::D) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Right)));
 
-            if (pressingIntoWall && stamina > 0.f) {
-                isSliding = true;
-                velocity.y = 50.f;
-                stamina -= staminaConsumption * dt;
-                if (stamina < 0.f) stamina = 0.f;
+            isSliding = true;
+            const float WALL_SLIDE_SPEED = 35.f;
+            velocity.y = WALL_SLIDE_SPEED;
+            facingRight = (wallDirection == -1);
 
-                facingRight = (wallDirection == -1);
-            }
-            else {
+            bool wantWallJump = jumpJustPressed || jumpBufferTimer > 0.f;
+            if (wantWallJump) {
+                if (wallBothSides) {
+                    velocity.y = -JUMP_VELOCITY;
+                    velocity.x = 0.f;
+                }
+                else {
+                    const float BOUNCE_X = speed * 2.0f;
+                    const float BOUNCE_Y = JUMP_VELOCITY * 0.75f;
+                    velocity.x = static_cast<float>(-wallDirection) * BOUNCE_X;
+                    velocity.y = -BOUNCE_Y;
+                    facingRight = (-wallDirection > 0);
+                }
                 isSliding = false;
+                wallJumpLockTimer = WALL_JUMP_LOCK_TIME;
+                coyoteTimer = 0.f;
+                jumpBufferTimer = 0.f;
+                jumpAnimDone = false;
+                setAnimation("Jump");
             }
         }
-        else {
+        else if (!touchingWall || onGround || velocity.y <= 0.f) {
             isSliding = false;
 
             if (onGround && stamina < maxStamina) {
@@ -358,60 +448,59 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
                 if (stamina > maxStamina) stamina = maxStamina;
             }
         }
-        if (isSliding) {
-            bool wantWallJump = jumpJustPressed || jumpBufferTimer > 0.f;
-
-            if (wantWallJump) {
-                velocity.y = -JUMP_VELOCITY * 0.88f;
-                velocity.x = static_cast<float>(-wallDirection) * speed * 2.f;
-                isSliding = false;
-                wallJumpLockTimer = WALL_JUMP_LOCK_TIME;
-                coyoteTimer = 0.f;
-                jumpBufferTimer = 0.f;
-                facingRight = (-wallDirection > 0);
-                setAnimation("Jump");
-            }
-            else if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::S) ||
-                sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Down)) {
-                velocity.y = 200.f;
-                velocity.x = static_cast<float>(-wallDirection) * speed * 1.2f;
-                isSliding = false;
-            }
-        }
 
         if (!isSliding && !isDashing) {
 
-            if (wallJumpLockTimer <= 0.f) {
-                bool left = sf::Keyboard::isKeyPressed(sf::Keyboard::Key::A) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Left);
-                bool right = sf::Keyboard::isKeyPressed(sf::Keyboard::Key::D) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Right);
+            bool left = sf::Keyboard::isKeyPressed(sf::Keyboard::Key::A) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Left);
+            bool right = sf::Keyboard::isKeyPressed(sf::Keyboard::Key::D) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Right);
 
-                if (hitFreezeTimer > 0.f) {
-                    velocity.x = 0.f;  // заморозка при ударе
-                }
-                else if (left && !right) {
-                    velocity.x = -speed;
+            if (hitFreezeTimer > 0.f) {
+                velocity.x = 0.f;
+            }
+            else if (wallJumpLockTimer > 0.f) {
+                const float AIR_STEER = 0.5f;
+                const float accel = speed * AIR_STEER * dt * 10.f;
+                if (left && !right)       velocity.x = std::max(velocity.x - accel, -speed);
+                else if (right && !left)  velocity.x = std::min(velocity.x + accel, speed);
+            }
+            else {
+                const float airAccel = 1400.f;
+                if (left && !right) {
+                    if (onGround) velocity.x = -speed;
+                    else velocity.x = std::max(velocity.x - airAccel * dt, -speed);
                     facingRight = false;
                 }
                 else if (right && !left) {
-                    velocity.x = speed;
+                    if (onGround) velocity.x = speed;
+                    else velocity.x = std::min(velocity.x + airAccel * dt, speed);
                     facingRight = true;
                 }
                 else {
-                    velocity.x = 0.f;
+                    if (onGround) {
+                        velocity.x = 0.f;
+                    }
+                    else {
+                        const float airFriction = 800.f;
+                        if (velocity.x > 0.f) velocity.x = std::max(0.f, velocity.x - airFriction * dt);
+                        else                  velocity.x = std::min(0.f, velocity.x + airFriction * dt);
+                    }
                 }
             }
+
+            if (!onGround) {
+                if (left && !right)       facingRight = false;
+                else if (right && !left)  facingRight = true;
+            }
+
             bool canJump = (coyoteTimer > 0.f);
             bool shouldJump = canJump && (jumpJustPressed || jumpBufferTimer > 0.f);
 
             if (shouldJump) {
                 const float DIAG_H_MULT = 1.1f;
-                bool left = sf::Keyboard::isKeyPressed(sf::Keyboard::Key::A) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Left);
-                bool right = sf::Keyboard::isKeyPressed(sf::Keyboard::Key::D) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Right);
-
                 float jumpVx = 0.f;
                 if (wallJumpLockTimer <= 0.f) {
-                    if (left && !right) jumpVx = -speed * DIAG_H_MULT;
-                    else if (right && !left)  jumpVx = speed * DIAG_H_MULT;
+                    if (left && !right)  jumpVx = -speed * DIAG_H_MULT;
+                    else if (right && !left) jumpVx = speed * DIAG_H_MULT;
                 }
 
                 velocity.y = -JUMP_VELOCITY;
@@ -420,7 +509,7 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
                 coyoteTimer = 0.f;
                 jumpBufferTimer = 0.f;
 
-                if (jumpVx < 0.f) facingRight = false;
+                if (jumpVx < 0.f)      facingRight = false;
                 else if (jumpVx > 0.f) facingRight = true;
             }
 
@@ -444,8 +533,6 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
         attackTimer = attackCooldown;
     }
 
-    // До удара (frame < 4) — направление атаки следует за игроком каждый кадр
-    // На frame 4 — фиксируем направление и наносим урон
     if (currentAnimation == "Attack" && !attackHitDealt) {
         bool atkUp = sf::Keyboard::isKeyPressed(sf::Keyboard::Key::W) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Up);
         bool atkDown = sf::Keyboard::isKeyPressed(sf::Keyboard::Key::S) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Down);
@@ -456,10 +543,9 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
         else                                 attackDir = { -1.f, 0.f };
     }
 
-    // Deal damage at hit frame (frame 4 = peak of sword swing)
     if (currentAnimation == "Attack" && animationFrame == 4 && !attackHitDealt) {
         attackHitDealt = true;
-        hitFreezeTimer = HIT_FREEZE_DURATION;  // заморозить игрока при ударе
+        hitFreezeTimer = HIT_FREEZE_DURATION;
         sf::FloatRect pBounds = shape.getGlobalBounds();
         const float sideRange = 75.f;
         const float vertRange = 60.f;
@@ -547,81 +633,62 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
 
     jumpHeld = jumpKeyDown;
 
-    //  if (currentAnimation == "Attack") {
-    //      if (animationFrame >= (int)animation["Attack"].size() - 1 && attackTimer <= 0.f) {
-    //          if (!onGround)          setAnimation("Jump");
-    //          else if (velocity.x != 0.f) setAnimation(facingRight ? "walkToRight" : "walkToLeft");
-    //          else                    setAnimation("idle");
-    //      }
-    //  }
-
-    //  if (!onGround) {
-    //      setAnimation("Jump");
-    //  }
-    //  else if (velocity.x != 0.f) {
-    //      setAnimation(facingRight ? "walkToRight" : "walkToLeft");
-    //  }
-    //  else {
-    //      //if (attackTimer > 0.f || (sf::Keyboard::isKeyPressed(attackKey) && attackTimer <= 0.f)) {
-    //      //    if (currentAnimation != "Attack") setAnimation("Attack");
-    //      //}
-    //      //else {
-    //      //    setAnimation("idle");
-    //      //}
-          //setAnimation("idle");
-    //  }
     if (currentAnimation == "Attack") {
-        int attackFrameCount = animations.count("Attack") ? (int)animations["Attack"].frames.size() : 1;
-        if (animationFrame >= attackFrameCount - 1 && attackTimer <= 0.f) {
-            if (!onGround && velocity.y > 0.f)
-                setAnimation("Fall");
-            else if (!onGround)
+        int total = animations.count("Attack") ? (int)animations["Attack"].frames.size() : 1;
+        if (animationFrame >= total - 1 && attackTimer <= 0.f) {
+            if (!onGround) {
+                fallTimer = 0.f; jumpAnimDone = false;
                 setAnimation("Jump");
+            }
             else if (velocity.x != 0.f) setAnimation(facingRight ? "walkToRight" : "walkToLeft");
             else setAnimation("idle");
         }
     }
-    else if (!onGround) {
-        if (velocity.y <= 0.f) {
-            // Летим вверх — всегда Jump, сбрасываем таймер падения
-            fallTimer = 0.f;
-            setAnimation("Jump");
-        }
-        else {
-            // Летим вниз — накапливаем таймер
-            fallTimer += dt;
-            if (fallTimer >= FALL_DELAY) {
-                // Достаточно долго падаем — включаем Fall
-                if (currentAnimation != "Fall")
-                    setAnimation("Fall");
-                // Fall уже играет — не трогаем (не сбрасываем фрейм)
-            }
-            // иначе ещё держим Jump (короткий прыжок — Fall не мелькнёт)
-        }
-    }
-    else if (velocity.x != 0.f) {
-        setAnimation(facingRight ? "walkToRight" : "walkToLeft");
+    else if (onGround) {
         fallTimer = 0.f;
+        jumpAnimDone = false;
+        if (velocity.x != 0.f) setAnimation(facingRight ? "walkToRight" : "walkToLeft");
+        else                    setAnimation("idle");
+    }
+    else if (isSliding) {
+        if (currentAnimation != "Jump")
+            setAnimation("Jump");
+        if (!jumpAnimDone) {
+            int total = animations.count("Jump") ? (int)animations["Jump"].frames.size() : 1;
+            animationFrame = total - 1;
+            jumpAnimDone = true;
+            auto& anim = animations["Jump"];
+            sprite.setTexture(anim.texture, true);
+            sprite.setTextureRect(anim.frames[animationFrame]);
+        }
     }
     else {
-        setAnimation("idle");
-        fallTimer = 0.f;
+        if (velocity.y < 0.f) {
+            fallTimer = 0.f;
+            if (currentAnimation != "Jump")
+                setAnimation("Jump");
+        }
+        else {
+            if (currentAnimation == "Jump") {
+                if (jumpAnimDone)
+                    setAnimation("Fall");
+            }
+            else if (currentAnimation != "Fall") {
+                setAnimation("Fall");
+            }
+        }
     }
 
     updateAnimation(dt);
 
-    // Спрайт: origin на центре тела (x=44.5) и ногах (y=96), флип через setScale
     const float sprScale = 0.9f;
-    const float FEET_ROW = 96.f;
-    const float BODY_CX = 44.5f;
-
-    sprite.setOrigin({ BODY_CX, FEET_ROW });
+    sprite.setOrigin({ 44.5f, 96.f });
     sprite.setScale(facingRight ? sf::Vector2f{ sprScale, sprScale }
     : sf::Vector2f{ -sprScale, sprScale });
 
     sf::Vector2f spritePos = shape.getPosition();
-    spritePos.x += shape.getSize().x * 0.5f;  // центр хитбокса по X
-    spritePos.y += shape.getSize().y;          // низ хитбокса по Y
+    spritePos.x += shape.getSize().x * 0.5f;
+    spritePos.y += shape.getSize().y;
     sprite.setPosition(spritePos);
 
     sf::FloatRect playerBounds = shape.getGlobalBounds();
@@ -706,6 +773,13 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
 void Player::draw(sf::RenderWindow& window, sf::View& view1, sf::Font& font, bool debugMode, bool pauseMode) {
     window.setView(view1);
 
+    if (hp <= 0) {
+        sprite.setColor(sf::Color::White);
+        window.draw(sprite);
+        window.setView(view1);
+        return;
+    }
+
     if (damageFlashTimer > 0.f) {
         float alpha = damageFlashTimer / DAMAGE_FLASH_DURATION;
         sprite.setColor(sf::Color(255, (uint8_t)(255 * (1.f - alpha)), (uint8_t)(255 * (1.f - alpha)), 255));
@@ -717,7 +791,6 @@ void Player::draw(sf::RenderWindow& window, sf::View& view1, sf::Font& font, boo
     window.draw(sprite);
 
     if (debugMode) {
-        // Hitbox (cyan = outer shape, yellow = inner bounds) — always in debugMode
         sf::RectangleShape dbgShape(shape.getSize());
         dbgShape.setPosition(shape.getPosition());
         dbgShape.setFillColor(sf::Color::Transparent);
@@ -765,7 +838,6 @@ void Player::draw(sf::RenderWindow& window, sf::View& view1, sf::Font& font, boo
             window.draw(dbgAtk);
         }
 
-        // Stats text — only in pause mode
         if (pauseMode) {
             sf::Text dbgTxt(font,
                 "vel: " + std::to_string((int)velocity.x) + "," + std::to_string((int)velocity.y) +
@@ -805,6 +877,8 @@ void Player::reset() {
     facingRight = true;
     hasKey = false;
     deathAnimationFinished = false;
+    deathPosSet = false;
+    deathSpritePos = {};
     if (animations.count("idle")) {
         Animation& anim = animations["idle"];
         sprite.setTexture(anim.texture, true);
@@ -819,8 +893,329 @@ void Player::reset() {
     jumpBufferTimer = 0.f;
     wallJumpLockTimer = 0.f;
     fallTimer = 0.f;
+    jumpAnimDone = false;
 }
 
 void Player::setSpawnPoint(float x, float y) {
     spawnPoint = { x, y };
+}
+
+bool Player::checkWallContactGMap(const GameMap& gmap) {
+    sf::FloatRect pb = shape.getGlobalBounds();
+    float px = pb.position.x, py = pb.position.y;
+    float pw = pb.size.x, ph = pb.size.y;
+    constexpr float probe = 5.f;
+
+    wallDirection = 0;
+    bool leftWall = false, rightWall = false;
+
+    for (const auto& c : gmap.colliders) {
+        float oy = std::min(py + ph, c.y + c.height) - std::max(py, c.y);
+        if (oy <= 0.f) continue;
+        if (std::abs(px - (c.x + c.width)) < probe) leftWall = true;
+        if (std::abs((px + pw) - c.x) < probe) rightWall = true;
+    }
+
+    wallBothSides = leftWall && rightWall;
+    if (leftWall) { wallDirection = -1; return true; }
+    if (rightWall) { wallDirection = 1; return true; }
+    return false;
+}
+
+void Player::update(float dt, const GameMap& gmap, float tileSize,
+    sf::View& view1, sf::RenderWindow& window,
+    std::vector<Enemy>& enemies)
+{
+    if (hp <= 0) {
+        if (!deathPosSet) {
+            deathSpritePos = shape.getPosition();
+            velocity.x *= 0.3f;
+            deathPosSet = true;
+        }
+        if (!onGround) {
+            velocity.y += gravity * dt;
+            if (velocity.y > 1000.f) velocity.y = 1000.f;
+            velocity.x *= std::pow(0.85f, dt * 60.f);
+
+            sf::Vector2f nextPos = deathSpritePos + velocity * dt;
+            float pw = shape.getSize().x, ph = shape.getSize().y;
+            onGround = false;
+
+            for (const auto& c : gmap.colliders) {
+                float ox = std::min(nextPos.x + pw, c.x + c.width) - std::max(nextPos.x, c.x);
+                float oy = std::min(nextPos.y + ph, c.y + c.height) - std::max(nextPos.y, c.y);
+                if (ox <= 0.f || oy <= 0.f) continue;
+                if (ox >= oy) {
+                    if (nextPos.y < c.y) { nextPos.y -= oy; velocity.y = 0.f; velocity.x = 0.f; onGround = true; }
+                }
+                else {
+                    if (nextPos.x < c.x) nextPos.x -= ox; else nextPos.x += ox;
+                    velocity.x = 0.f;
+                }
+            }
+            deathSpritePos = nextPos;
+            shape.setPosition(deathSpritePos);
+        }
+        setAnimation("Death");
+        updateAnimation(dt);
+        const float sprScale = 0.9f;
+        sprite.setOrigin({ 44.5f, 96.f });
+        sprite.setScale(facingRight ? sf::Vector2f{ sprScale, sprScale } : sf::Vector2f{ -sprScale, sprScale });
+        sf::Vector2f dp = deathSpritePos;
+        dp.x += shape.getSize().x * 0.5f;
+        dp.y += shape.getSize().y;
+        sprite.setPosition(dp);
+        return;
+    }
+
+    if (dashCooldownTimer > 0.f) dashCooldownTimer -= dt;
+    if (attackTimer > 0.f) attackTimer -= dt;
+    if (hitFreezeTimer > 0.f) hitFreezeTimer -= dt;
+    if (damageFlashTimer > 0.f) damageFlashTimer -= dt;
+    if (spikeInvulTimer > 0.f) spikeInvulTimer -= dt;
+    if (wallJumpLockTimer > 0.f) wallJumpLockTimer -= dt;
+
+    questPollTimer += dt;
+    if (questPollTimer >= QUEST_POLL_INTERVAL) {
+        questPollTimer = 0.f;
+        auto& api = ApiClient::instance();
+        if (api.player.loggedIn) {
+            api.getQuestsAsync([](std::vector<ApiQuest>) {});
+            std::thread([&api]() { api.refreshPlayerAsync(); }).detach();
+        }
+    }
+
+    bool jumpKeyDown = sf::Keyboard::isKeyPressed(sf::Keyboard::Key::W) ||
+        sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Up) ||
+        sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Space);
+    bool jumpJustPressed = jumpKeyDown && !jumpHeld;
+
+    if (jumpJustPressed)            jumpBufferTimer = JUMP_BUFFER_TIME;
+    else if (jumpBufferTimer > 0.f) jumpBufferTimer -= dt;
+    if (onGround)                   coyoteTimer = COYOTE_TIME;
+    else if (coyoteTimer > 0.f)     coyoteTimer -= dt;
+
+    if (isDashing) {
+        dashTimer -= dt;
+        if (dashTimer <= 0.f) { isDashing = false; velocity = {}; }
+        else velocity = dashDirection * dashSpeed;
+    }
+    else {
+        if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::LShift) &&
+            dashCooldownTimer <= 0.f && stamina >= 50.f && (!limitedDashMode || dashAvailable))
+        {
+            sf::Vector2f dDir{};
+            if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::A) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Left))  dDir.x = -1.f;
+            else if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::D) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Right)) dDir.x = 1.f;
+            if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::W) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Up))    dDir.y = -1.f;
+            else if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::S) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Down))  dDir.y = 1.f;
+            float len = std::sqrt(dDir.x * dDir.x + dDir.y * dDir.y);
+            if (len > 0.f) {
+                dashDirection = dDir / len;
+                isDashing = true; dashTimer = dashDuration;
+                dashCooldownTimer = dashCooldown; stamina -= 50.f;
+                if (limitedDashMode) dashAvailable = false;
+            }
+        }
+
+        bool touchingWall = checkWallContactGMap(gmap);
+        if (touchingWall && !onGround && velocity.y > 0.f && wallJumpLockTimer <= 0.f) {
+            isSliding = true;
+            velocity.y = 35.f;
+            facingRight = (wallDirection == -1);
+            bool wantWallJump = jumpJustPressed || jumpBufferTimer > 0.f;
+            if (wantWallJump) {
+                if (wallBothSides) { velocity.y = -JUMP_VELOCITY; velocity.x = 0.f; }
+                else {
+                    velocity.x = static_cast<float>(-wallDirection) * speed * 2.0f;
+                    velocity.y = -JUMP_VELOCITY * 0.75f;
+                    facingRight = (-wallDirection > 0);
+                }
+                isSliding = false; wallJumpLockTimer = WALL_JUMP_LOCK_TIME;
+                coyoteTimer = 0.f; jumpBufferTimer = 0.f;
+                jumpAnimDone = false; setAnimation("Jump");
+            }
+        }
+        else if (!touchingWall || onGround || velocity.y <= 0.f) {
+            isSliding = false;
+            if (onGround && stamina < maxStamina) {
+                stamina += staminaRegenRate * dt;
+                if (stamina > maxStamina) stamina = maxStamina;
+            }
+        }
+
+        if (!isSliding && !isDashing) {
+            bool left = sf::Keyboard::isKeyPressed(sf::Keyboard::Key::A) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Left);
+            bool right = sf::Keyboard::isKeyPressed(sf::Keyboard::Key::D) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Right);
+
+            if (hitFreezeTimer > 0.f) { velocity.x = 0.f; }
+            else if (wallJumpLockTimer > 0.f) {
+                const float accel = speed * 0.5f * dt * 10.f;
+                if (left && !right)       velocity.x = std::max(velocity.x - accel, -speed);
+                else if (right && !left)  velocity.x = std::min(velocity.x + accel, speed);
+            }
+            else {
+                const float airAccel = 1400.f;
+                if (left && !right) {
+                    if (onGround) velocity.x = -speed; else velocity.x = std::max(velocity.x - airAccel * dt, -speed);
+                    facingRight = false;
+                }
+                else if (right && !left) {
+                    if (onGround) velocity.x = speed; else velocity.x = std::min(velocity.x + airAccel * dt, speed);
+                    facingRight = true;
+                }
+                else {
+                    if (onGround) velocity.x = 0.f;
+                    else {
+                        const float f = 800.f;
+                        if (velocity.x > 0.f) velocity.x = std::max(0.f, velocity.x - f * dt);
+                        else                  velocity.x = std::min(0.f, velocity.x + f * dt);
+                    }
+                }
+            }
+
+            if (!onGround) {
+                if (left && !right) facingRight = false;
+                else if (right && !left) facingRight = true;
+            }
+
+            bool shouldJump = (coyoteTimer > 0.f) && (jumpJustPressed || jumpBufferTimer > 0.f);
+            if (shouldJump) {
+                const float DIAG_H_MULT = 1.1f;
+                float jumpVx = 0.f;
+                if (wallJumpLockTimer <= 0.f) {
+                    if (left && !right)      jumpVx = -speed * DIAG_H_MULT;
+                    else if (right && !left) jumpVx = speed * DIAG_H_MULT;
+                }
+                velocity.y = -JUMP_VELOCITY;
+                if (!isDashing) velocity.x = jumpVx;
+                onGround = false; coyoteTimer = 0.f; jumpBufferTimer = 0.f;
+                if (jumpVx < 0.f) facingRight = false; else if (jumpVx > 0.f) facingRight = true;
+            }
+            if (!jumpKeyDown && velocity.y < -JUMP_CUT_VELOCITY && !isDashing)
+                velocity.y = -JUMP_CUT_VELOCITY;
+        }
+
+        if (!isDashing) {
+            velocity.y += gravity * dt;
+            if (velocity.y > 1000.f) velocity.y = 1000.f;
+        }
+    }
+
+    if (sf::Keyboard::isKeyPressed(attackKey) && attackTimer <= 0.f && currentAnimation != "Attack") {
+        setAnimation("Attack"); animationFrame = 0; animationTimer = 0.f;
+        attackHitDealt = false; attackTimer = attackCooldown;
+    }
+    if (currentAnimation == "Attack" && !attackHitDealt) {
+        bool atkUp = sf::Keyboard::isKeyPressed(sf::Keyboard::Key::W) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Up);
+        bool atkDown = sf::Keyboard::isKeyPressed(sf::Keyboard::Key::S) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Down);
+        if (atkUp && !atkDown) attackDir = { 0.f, -1.f };
+        else if (atkDown && !atkUp)   attackDir = { 0.f,  1.f };
+        else if (facingRight)         attackDir = { 1.f,  0.f };
+        else                          attackDir = { -1.f,  0.f };
+    }
+    if (currentAnimation == "Attack" && animationFrame == 4 && !attackHitDealt) {
+        attackHitDealt = true; hitFreezeTimer = HIT_FREEZE_DURATION;
+        sf::FloatRect pb = shape.getGlobalBounds();
+        const float sR = 75.f, vR = 60.f;
+        float cx = pb.position.x + pb.size.x * 0.5f, cy = pb.position.y + pb.size.y * 0.5f;
+        float hw = pb.size.x * 0.5f, hh = pb.size.y * 0.5f;
+        bool ar = attackDir.x > 0.f, al = attackDir.x < 0.f;
+        bool au = attackDir.y < 0.f, ad = attackDir.y > 0.f;
+        sf::FloatRect atk;
+        if (!ar && !al && au && !ad) atk = { { cx - hw,      cy - hh - vR }, { pb.size.x, vR        } };
+        else if (!ar && !al && !au && ad) atk = { { cx - hw,      cy + hh      }, { pb.size.x, vR        } };
+        else if (ar && !al && au && !ad) atk = { { cx,           cy - hh - vR }, { sR,        vR + hh   } };
+        else if (!ar && al && au && !ad) atk = { { cx - sR,      cy - hh - vR }, { sR,        vR + hh   } };
+        else if (ar && !al && !au && ad) atk = { { cx,           cy           }, { sR,        hh + vR   } };
+        else if (!ar && al && !au && ad) atk = { { cx - sR,      cy           }, { sR,        hh + vR   } };
+        else if (ar)                       atk = { { cx,           cy - hh      }, { sR,        pb.size.y } };
+        else                               atk = { { cx - sR,      cy - hh      }, { sR,        pb.size.y } };
+        for (auto& e : enemies)
+            if (e.isAlive() && rectsIntersect(atk, e.getBounds()))
+                e.takeDamage(attackDamage);
+    }
+
+    float pw = shape.getSize().x, ph = shape.getSize().y;
+    onGround = false;
+
+    sf::Vector2f posX = { shape.getPosition().x + velocity.x * dt, shape.getPosition().y };
+    for (const auto& c : gmap.colliders) {
+        float ox = std::min(posX.x + pw, c.x + c.width) - std::max(posX.x, c.x);
+        float oy = std::min(posX.y + ph, c.y + c.height) - std::max(posX.y, c.y);
+        if (ox <= 0.f || oy <= 0.f) continue;
+        if (posX.x + pw * 0.5f < c.x + c.width * 0.5f) posX.x -= ox;
+        else                                              posX.x += ox;
+        if (!isDashing) velocity.x = 0.f;
+    }
+
+    sf::Vector2f posXY = { posX.x, shape.getPosition().y + velocity.y * dt };
+    for (const auto& c : gmap.colliders) {
+        float ox = std::min(posXY.x + pw, c.x + c.width) - std::max(posXY.x, c.x);
+        float oy = std::min(posXY.y + ph, c.y + c.height) - std::max(posXY.y, c.y);
+        if (ox <= 0.f || oy <= 0.f) continue;
+        float dist = (posXY.y + ph) - c.y;
+        if (posXY.y + ph * 0.5f < c.y + c.height * 0.5f) {
+            if (dist > 0.f && dist <= LEDGE_FORGIVENESS && velocity.y >= 0.f) {
+                posXY.y -= dist; velocity.y = 0.f; onGround = true;
+            }
+            else if (dist > LEDGE_FORGIVENESS) {
+                posXY.y -= oy; velocity.y = 0.f; onGround = true;
+            }
+        }
+        else {
+            posXY.y += oy; velocity.y = 0.f;
+        }
+    }
+
+    shape.setPosition(posXY);
+    if (limitedDashMode && onGround) dashAvailable = true;
+    jumpHeld = jumpKeyDown;
+
+    if (currentAnimation == "Attack") {
+        int total = animations.count("Attack") ? (int)animations["Attack"].frames.size() : 1;
+        if (animationFrame >= total - 1 && attackTimer <= 0.f) {
+            if (!onGround) { fallTimer = 0.f; jumpAnimDone = false; setAnimation("Jump"); }
+            else if (velocity.x != 0.f) setAnimation(facingRight ? "walkToRight" : "walkToLeft");
+            else setAnimation("idle");
+        }
+    }
+    else if (onGround) {
+        fallTimer = 0.f; jumpAnimDone = false;
+        if (velocity.x != 0.f) setAnimation(facingRight ? "walkToRight" : "walkToLeft");
+        else                    setAnimation("idle");
+    }
+    else {
+        fallTimer += dt;
+        if (velocity.y < 0.f && !jumpAnimDone) {
+            if (currentAnimation != "Jump") { jumpAnimDone = false; setAnimation("Jump"); }
+        }
+        else setAnimation("Fall");
+    }
+    updateAnimation(dt);
+
+    {
+        float mapWorldH = static_cast<float>(GMAP_H) * tileSize + 200.f;
+        if (shape.getPosition().y > mapWorldH) {
+            hp = 0; velocity = {}; isDashing = false; dashCooldownTimer = 0.f;
+            return;
+        }
+    }
+
+    {
+        sf::FloatRect innerBounds = getInnerBounds();
+        for (auto& e : enemies) {
+            if (!e.isAlive()) continue;
+            int dmg = e.checkAndGetContactDamage(innerBounds, dt);
+            if (dmg > 0) applyDamage(dmg);
+        }
+    }
+
+    const float sprScale = 0.9f;
+    sprite.setOrigin({ 44.5f, 96.f });
+    sprite.setScale(facingRight ? sf::Vector2f{ sprScale, sprScale } : sf::Vector2f{ -sprScale, sprScale });
+    sf::Vector2f sp = shape.getPosition();
+    sp.x += shape.getSize().x * 0.5f;
+    sp.y += shape.getSize().y;
+    sprite.setPosition(sp);
 }

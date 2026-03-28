@@ -97,10 +97,14 @@ void Player::loadAnimationSheets(const std::string& walkPath,
 
     animations["Attack"].texture.loadFromFile(attackPath);
     animations["Attack"].frames = {
-        IntRect({0,   0}, {128, 128}), IntRect({128, 0}, {128, 128}),
-        IntRect({256, 0}, {128, 128}), IntRect({384, 0}, {128, 128}),
-        IntRect({512, 0}, {128, 128}), IntRect({640, 0}, {128, 128}),
-        IntRect({768, 0}, {128, 128}), IntRect({896, 0}, {128, 128}),
+        IntRect({0,   0}, {128, 128}), 
+        //IntRect({128, 0}, {128, 128}),
+        IntRect({256, 0}, {128, 128}), 
+        //IntRect({384, 0}, {128, 128}),
+        IntRect({512, 0}, {128, 128}), 
+        IntRect({640, 0}, {128, 128}),
+        //IntRect({768, 0}, {128, 128}),
+        IntRect({896, 0}, {128, 128}),
         IntRect({1024,0}, {128, 128}),
     };
 

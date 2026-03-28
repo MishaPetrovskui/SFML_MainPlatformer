@@ -116,38 +116,38 @@ public:
         return true;
     }
 
-    void drawBackground(sf::RenderWindow& window, float tileSize, sf::View& cam) const {
+    void drawBackground(sf::RenderWindow& window, float tileSize, sf::View& cam) {
         sf::Vector2f tl = cam.getCenter() - cam.getSize() / 2.f;
         sf::Vector2f br = cam.getCenter() + cam.getSize() / 2.f;
         int x0 = std::max(0, (int)(tl.x / tileSize));
         int y0 = std::max(0, (int)(tl.y / tileSize));
         int x1 = std::min(GMAP_W, (int)(br.x / tileSize) + 2);
         int y1 = std::min(GMAP_H, (int)(br.y / tileSize) + 2);
-        for (int y = y0;y < y1;++y)
-            for (int x = x0;x < x1;++x) {
+        for (int y = y0; y < y1; ++y)
+            for (int x = x0; x < x1; ++x) {
                 int id = background[y * GMAP_W + x];
                 if (id < 0) continue;
                 auto it = sheet.find(id);
                 if (it == sheet.end()) continue;
-                const_cast<sf::Sprite&>(it->second).setPosition({ x * tileSize,y * tileSize });
+                it->second.setPosition({ x * tileSize, y * tileSize });
                 window.draw(it->second);
             }
     }
 
-    void drawTiles(sf::RenderWindow& window, float tileSize, sf::View& cam) const {
+    void drawTiles(sf::RenderWindow& window, float tileSize, sf::View& cam) {
         sf::Vector2f tl = cam.getCenter() - cam.getSize() / 2.f;
         sf::Vector2f br = cam.getCenter() + cam.getSize() / 2.f;
         int x0 = std::max(0, (int)(tl.x / tileSize));
         int y0 = std::max(0, (int)(tl.y / tileSize));
         int x1 = std::min(GMAP_W, (int)(br.x / tileSize) + 2);
         int y1 = std::min(GMAP_H, (int)(br.y / tileSize) + 2);
-        for (int y = y0;y < y1;++y)
-            for (int x = x0;x < x1;++x) {
+        for (int y = y0; y < y1; ++y)
+            for (int x = x0; x < x1; ++x) {
                 int id = tiles[y * GMAP_W + x];
                 if (id < 0) continue;
                 auto it = sheet.find(id);
                 if (it == sheet.end()) continue;
-                const_cast<sf::Sprite&>(it->second).setPosition({ x * tileSize,y * tileSize });
+                it->second.setPosition({ x * tileSize, y * tileSize });
                 window.draw(it->second);
             }
     }

@@ -2,6 +2,9 @@
 #include <iostream>
 #include <cmath>
 #include <map>
+#include <queue>
+#include <utility>
+#include <cstdint>
 #include <cstring>
 #include <set>
 #include <algorithm>
@@ -33,6 +36,17 @@ int MAP3_TILES[MAP3_H][MAP3_W + 1] = {};
 
 GameMap gMap3;
 bool    gUsingMap3 = false;
+float   gMap3WorldW = 500 * 32.f;
+float   gMap3WorldH = 500 * 32.f;
+float   gMap3LightMap[500][500] = {};
+
+sf::Texture gTorchFullTex;
+static constexpr int TORCH_FW = 32;
+static constexpr int TORCH_FH = 32;
+int         gTorchFrameCount = 1;
+float       gTorchAnimTimer = 0.f;
+int         gTorchAnimFrame = 0;
+const float TORCH_FRAME_TIME = 0.12f;
 
 float TileSize = 40.f;
 const float MAP3_TILE_SIZE = 32.f;
@@ -261,6 +275,131 @@ static string keyToString(Keyboard::Key k) {
     case Keyboard::Key::Backspace: return "Back";
     default:
         return "Key" + to_string(static_cast<int>(k));
+    }
+}
+
+static float getMap3SmoothLight(int x, int y) {
+    float sum = 0.f; int cnt = 0;
+    for (int dy = -1; dy <= 1; dy++)
+        for (int dx = -1; dx <= 1; dx++) {
+            int nx = x + dx, ny = y + dy;
+            if (nx < 0 || ny < 0 || nx >= 500 || ny >= 500) continue;
+            sum += gMap3LightMap[ny][nx]; cnt++;
+        }
+    return cnt > 0 ? sum / cnt : 0.f;
+}
+
+static void calculateMap3Light() {
+    const float AIR_DECAY = 0.04f;
+    const float BLOCK_DECAY = 0.20f;
+    for (int y = 0; y < 500; y++)
+        for (int x = 0; x < 500; x++)
+            gMap3LightMap[y][x] = 0.f;
+
+    std::queue<std::pair<int, int>> q;
+    for (auto& e : gMap3.entities) {
+        if (e.light <= 0.f || e.type == ENT_ENEMY) continue;
+        int tx = (int)(e.position.x / MAP3_TILE_SIZE);
+        int ty = (int)(e.position.y / MAP3_TILE_SIZE);
+        if (tx < 0 || ty < 0 || tx >= 500 || ty >= 500) continue;
+        gMap3LightMap[ty][tx] = e.light;
+        q.push({ tx, ty });
+    }
+    while (!q.empty()) {
+        auto [x, y] = q.front(); q.pop();
+        float cur = gMap3LightMap[y][x];
+        int dx[] = { 1,-1,0,0 }, dy[] = { 0,0,1,-1 };
+        for (int d = 0; d < 4; d++) {
+            int nx = x + dx[d], ny = y + dy[d];
+            if (nx < 0 || ny < 0 || nx >= 500 || ny >= 500) continue;
+            int tid = gMap3.tiles[ny * GMAP_W + nx];
+            float decay = (tid < 0) ? AIR_DECAY : BLOCK_DECAY;
+            float nl = cur - decay;
+            if (nl > 0.f && nl > gMap3LightMap[ny][nx]) {
+                gMap3LightMap[ny][nx] = nl;
+                q.push({ nx, ny });
+            }
+        }
+    }
+}
+
+static void drawMap3Lit(sf::RenderWindow& window, sf::View& cam, bool isBg) {
+    sf::Vector2f tl = cam.getCenter() - cam.getSize() / 2.f;
+    sf::Vector2f br = cam.getCenter() + cam.getSize() / 2.f;
+    int x0 = std::max(0, (int)(tl.x / MAP3_TILE_SIZE));
+    int y0 = std::max(0, (int)(tl.y / MAP3_TILE_SIZE));
+    int x1 = std::min(GMAP_W, (int)(br.x / MAP3_TILE_SIZE) + 2);
+    int y1 = std::min(GMAP_H, (int)(br.y / MAP3_TILE_SIZE) + 2);
+    for (int y = y0; y < y1; y++)
+        for (int x = x0; x < x1; x++) {
+            int id = isBg ? gMap3.background[y * GMAP_W + x]
+                : gMap3.tiles[y * GMAP_W + x];
+            if (id < 0) continue;
+            auto it = gMap3.sheet.find(id);
+            if (it == gMap3.sheet.end()) continue;
+            float light = getMap3SmoothLight(x, y);
+            float fl = isBg ? (light * 0.8f * 0.36f) : (light * 0.6f);
+            fl = std::min(fl, 1.0f);
+            int br2 = (int)(fl * (isBg ? 230.f : 255.f));
+            it->second.setColor(sf::Color(br2, br2, br2));
+            it->second.setPosition({ x * MAP3_TILE_SIZE, y * MAP3_TILE_SIZE });
+            window.draw(it->second);
+        }
+    for (auto& [id, spr] : gMap3.sheet) spr.setColor(sf::Color::White);
+}
+
+static void drawMap3EntitiesLit(sf::RenderWindow& window,
+    std::map<int, sf::Sprite>& spriteSheet)
+{
+    bool hasTorch = (gTorchFullTex.getSize().x > 0);
+    constexpr int tFW = TORCH_FW, tFH = TORCH_FH;
+
+    for (const auto& ent : gMap3.entities) {
+        int sprId = -1;
+        bool useMap3Sheet = false;
+        bool isTorch = false;
+        if (ent.type == ENT_FINISH)   sprId = 13;
+        else if (ent.type == ENT_SPAWNPOINT || ent.type == ENT_STARTPOINT) sprId = 12;
+        else if (ent.type == ENT_COIN) sprId = 7;
+        else if ((int)ent.type == 8) { isTorch = true; }
+
+        if (sprId < 0 && !isTorch) continue;
+
+        int tx = (int)(ent.position.x / MAP3_TILE_SIZE);
+        int ty = (int)(ent.position.y / MAP3_TILE_SIZE);
+        float light = getMap3SmoothLight(tx, ty);
+        float entLight = std::max(light, ent.light);
+        entLight = std::min(entLight, 1.f);
+        sf::Color col((uint8_t)(255 * entLight), (uint8_t)(255 * entLight), (uint8_t)(255 * entLight));
+
+        if (isTorch && hasTorch) {
+            sf::Sprite torchSpr(gTorchFullTex,
+                sf::IntRect({ gTorchAnimFrame * tFW, 0 }, { tFW, tFH }));
+            torchSpr.setColor(sf::Color::White);
+            torchSpr.setPosition(ent.position);
+            window.draw(torchSpr);
+        }
+        else if (isTorch) {
+            auto it = gMap3.sheet.find(6);
+            if (it != gMap3.sheet.end()) {
+                it->second.setColor(sf::Color::White);
+                it->second.setPosition(ent.position);
+                window.draw(it->second);
+                it->second.setColor(sf::Color::White);
+            }
+        }
+        else {
+            auto it = spriteSheet.find(sprId);
+            if (it != spriteSheet.end()) {
+                auto sz = it->second.getTexture().getSize();
+                if (sz.x > 0) it->second.setScale({ MAP3_TILE_SIZE / (float)sz.x, MAP3_TILE_SIZE / (float)sz.y });
+                it->second.setColor(col);
+                it->second.setPosition(ent.position);
+                window.draw(it->second);
+                it->second.setColor(sf::Color::White);
+                it->second.setScale({ 1.f, 1.f });
+            }
+        }
     }
 }
 
@@ -1425,12 +1564,23 @@ int main()
                             }
                             enemies.clear();
                             for (auto& ent : gMap3.entities) {
-                                if (ent.type == ENT_ENEMY) {
-                                    if (ent.position.x < rMinX || ent.position.x > rMaxX ||
-                                        ent.position.y < rMinY || ent.position.y > rMaxY) continue;
-                                    sf::Texture& tex = (ent.textureId == 9) ? tx_SlimeMan : tx_Slime;
-                                    enemies.emplace_back(ent.position.x, ent.position.y, tex, MAP3_TILE_SIZE);
+                                if (ent.type != ENT_ENEMY) continue;
+                                if (ent.textureId < 0) continue;
+                                if (ent.position.x <= 0.f || ent.position.y <= 0.f) continue;
+                                if (ent.position.x < rMinX || ent.position.x > rMaxX ||
+                                    ent.position.y < rMinY || ent.position.y > rMaxY) continue;
+                                float footY = ent.position.y + MAP3_TILE_SIZE;
+                                bool hasGround = false;
+                                for (auto& col : gMap3.colliders) {
+                                    bool xOk = ent.position.x + MAP3_TILE_SIZE * 0.8f > col.x &&
+                                        ent.position.x + MAP3_TILE_SIZE * 0.2f < col.x + col.width;
+                                    bool yOk = footY >= col.y - MAP3_TILE_SIZE &&
+                                        footY <= col.y + 4.f;
+                                    if (xOk && yOk) { hasGround = true; break; }
                                 }
+                                if (!hasGround) continue;
+                                sf::Texture& tex = (ent.textureId == 9) ? tx_SlimeMan : tx_Slime;
+                                enemies.emplace_back(ent.position.x, ent.position.y, tex, MAP3_TILE_SIZE);
                             }
                             for (auto& e : enemies) e.loadAnimations("Sprites/slime_walk.png", "Sprites/slime_attack.png");
                         }
@@ -1536,30 +1686,43 @@ int main()
                         gMap3.load("Map3.bin");
                         gMap3.textures.clear();
                         gMap3.sheet.clear();
-                        struct TileDef { int id; std::string path; };
-                        std::vector<TileDef> tileDefs = {
-                            {1,  "Sprites/rock_6.png"},
-                            {4,  "Sprites/StoneBrick.png"},
-                            {5,  "Sprites/StoneBrickBack.png"},
-                            {52, "Sprites/rock_1.png"},
-                            {53, "Sprites/rock_2.png"},
-                            {54, "Sprites/rock_3.png"},
-                            {55, "Sprites/rock_4.png"},
-                            {56, "Sprites/rock_5.png"},
-                            {57, "Sprites/rock_6.png"},
-                            {58, "Sprites/rock_1.png"},
-                            {59, "Sprites/rock_2.png"},
-                            {60, "Sprites/rock_3.png"},
-                        };
-                        for (auto& td : tileDefs) {
-                            gMap3.textures[td.id] = sf::Texture();
-                            if (!gMap3.textures[td.id].loadFromFile(td.path))
-                                std::cout << "[Map3] WARN can't load: " << td.path << "\n";
-                            else
-                                std::cout << "[Map3] OK tile " << td.id << " <- " << td.path << "\n";
+                        auto loadM3Tex = [&](int id, const std::string& path,
+                            sf::IntRect crop = sf::IntRect()) {
+                                gMap3.textures[id] = sf::Texture();
+                                bool ok = (crop.size.x > 0 && crop.size.y > 0)
+                                    ? gMap3.textures[id].loadFromFile(path, false, crop)
+                                    : gMap3.textures[id].loadFromFile(path);
+                                if (!ok) std::cout << "[Map3] WARN: " << path << "\n";
+                                else     std::cout << "[Map3] OK tile " << id << " <- " << path << "\n";
+                            };
+                        loadM3Tex(0, "Sprites/Undefined.png");
+                        loadM3Tex(1, "Sprites/rock_6.png");
+                        loadM3Tex(2, "Sprites/slime 2.png", sf::IntRect({ 16, 16 }, { 32, 32 }));
+                        loadM3Tex(3, "Sprites/background.png");
+                        loadM3Tex(4, "Sprites/StoneBrick.png");
+                        loadM3Tex(5, "Sprites/StoneBrickBack.png");
+                        loadM3Tex(6, "Sprites/Torch.png");
+                        gTorchFullTex.loadFromFile("Sprites/Torch.png");
+                        gTorchFrameCount = std::max(1, (int)(gTorchFullTex.getSize().x / TORCH_FW));
+                        gTorchAnimTimer = 0.f; gTorchAnimFrame = 0;
+                        loadM3Tex(52, "Sprites/rock_1.png");
+                        loadM3Tex(53, "Sprites/rock_2.png");
+                        loadM3Tex(54, "Sprites/rock_3.png");
+                        loadM3Tex(55, "Sprites/rock_4.png");
+                        loadM3Tex(56, "Sprites/rock_5.png");
+                        loadM3Tex(57, "Sprites/rock_6.png");
+                        loadM3Tex(58, "Sprites/rock_1.png");
+                        loadM3Tex(59, "Sprites/rock_2.png");
+                        loadM3Tex(60, "Sprites/rock_3.png");
+
+                        for (auto& [id, tx] : gMap3.textures) {
+                            sf::Sprite spr(tx);
+                            auto sz = tx.getSize();
+                            if (sz.x > 0 && sz.y > 0)
+                                spr.setScale({ MAP3_TILE_SIZE / (float)sz.x,
+                                               MAP3_TILE_SIZE / (float)sz.y });
+                            gMap3.sheet.emplace(id, spr);
                         }
-                        for (auto& [id, tx] : gMap3.textures)
-                            gMap3.sheet.emplace(id, sf::Sprite(tx));
 
                         memset(MAP, -1, sizeof(MAP));
                         memset(MobMAP, -1, sizeof(MobMAP));
@@ -1581,21 +1744,31 @@ int main()
                                 mapMaxY = std::max(mapMaxY, col.y + col.height);
                             }
                         }
+                        gMap3WorldW = mapMaxX + 200.f;
+                        gMap3WorldH = mapMaxY + 200.f;
 
                         enemies.clear();
                         for (auto& ent : gMap3.entities) {
-                            if (ent.type == ENT_ENEMY) {
-                                if (ent.position.x < mapMinX || ent.position.x > mapMaxX ||
-                                    ent.position.y < mapMinY || ent.position.y > mapMaxY) {
-                                    std::cout << "[Map3] Skipping out-of-bounds enemy at ("
-                                        << ent.position.x << "," << ent.position.y << ")\n";
-                                    continue;
-                                }
-                                sf::Texture& tex = (ent.textureId == 9) ? tx_SlimeMan : tx_Slime;
-                                enemies.emplace_back(ent.position.x, ent.position.y, tex, MAP3_TILE_SIZE);
+                            if (ent.type != ENT_ENEMY) continue;
+                            if (ent.textureId < 0) continue;
+                            if (ent.position.x <= 0.f || ent.position.y <= 0.f) continue;
+                            if (ent.position.x < mapMinX || ent.position.x > mapMaxX ||
+                                ent.position.y < mapMinY || ent.position.y > mapMaxY) continue;
+                            float footY = ent.position.y + MAP3_TILE_SIZE;
+                            bool hasGround = false;
+                            for (auto& col : gMap3.colliders) {
+                                bool xOk = ent.position.x + MAP3_TILE_SIZE * 0.8f > col.x &&
+                                    ent.position.x + MAP3_TILE_SIZE * 0.2f < col.x + col.width;
+                                bool yOk = footY >= col.y - MAP3_TILE_SIZE &&
+                                    footY <= col.y + 4.f;
+                                if (xOk && yOk) { hasGround = true; break; }
                             }
+                            if (!hasGround) continue;
+                            sf::Texture& tex = (ent.textureId == 9) ? tx_SlimeMan : tx_Slime;
+                            enemies.emplace_back(ent.position.x, ent.position.y, tex, MAP3_TILE_SIZE);
                         }
                         for (auto& e : enemies) e.loadAnimations("Sprites/slime_walk.png", "Sprites/slime_attack.png");
+                        calculateMap3Light();
 
                         auto spawn = gMap3.getSafeSpawn(30.f, 40.f);
                         float playerH = 40.f;
@@ -1779,6 +1952,14 @@ int main()
 
         float dt = std::min(clock.restart().asSeconds(), 1.f / 30.f);
 
+        if (gUsingMap3) {
+            gTorchAnimTimer += dt;
+            if (gTorchAnimTimer >= TORCH_FRAME_TIME) {
+                gTorchAnimTimer -= TORCH_FRAME_TIME;
+                gTorchAnimFrame = (gTorchAnimFrame + 1) % gTorchFrameCount;
+            }
+        }
+
         if (gameState == PLAYING) {
             if (gUsingMap3) {
                 sf::Vector2f ppos3 = player.getPosition();
@@ -1850,8 +2031,8 @@ int main()
                     Vector2f viewCenter = view1.getCenter();
                     viewCenter.x += (playerPos.x - viewCenter.x) * 0.1f;
                     viewCenter.y += (playerPos.y - viewCenter.y) * 0.1f;
-                    float mapWpx = gUsingMap3 ? GMAP_W * MAP3_TILE_SIZE : MAP_WIDTH * TileSize;
-                    float mapHpx = gUsingMap3 ? GMAP_H * MAP3_TILE_SIZE : MAP_HEIGHT * TileSize;
+                    float mapWpx = gUsingMap3 ? gMap3WorldW : MAP_WIDTH * TileSize;
+                    float mapHpx = gUsingMap3 ? gMap3WorldH : MAP_HEIGHT * TileSize;
                     float halfW = view1.getSize().x / 2.f;
                     float halfH = view1.getSize().y / 2.f;
                     if (viewCenter.x < halfW)          viewCenter.x = halfW;
@@ -1949,21 +2130,9 @@ int main()
         else if (gameState == PLAYING) {
             window.setView(view1);
             if (gUsingMap3) {
-                gMap3.drawBackground(window, MAP3_TILE_SIZE, view1);
-                gMap3.drawTiles(window, MAP3_TILE_SIZE, view1);
-                for (const auto& ent : gMap3.entities) {
-                    int sprId = -1;
-                    if (ent.type == ENT_FINISH) sprId = 13;
-                    else if (ent.type == ENT_SPAWNPOINT || ent.type == ENT_STARTPOINT) sprId = 12;
-                    else if (ent.type == ENT_COIN) sprId = 7;
-                    if (sprId >= 0) {
-                        auto it = spriteSheet.find(sprId);
-                        if (it != spriteSheet.end()) {
-                            it->second.setPosition(ent.position);
-                            window.draw(it->second);
-                        }
-                    }
-                }
+                drawMap3Lit(window, view1, true);
+                drawMap3Lit(window, view1, false);
+                drawMap3EntitiesLit(window, spriteSheet);
                 if (debugMode) gMap3.drawColliders(window);
             }
             else {
@@ -1999,21 +2168,9 @@ int main()
         if (gameState == PAUSED) {
             window.setView(view1);
             if (gUsingMap3) {
-                gMap3.drawBackground(window, MAP3_TILE_SIZE, view1);
-                gMap3.drawTiles(window, MAP3_TILE_SIZE, view1);
-                for (const auto& ent : gMap3.entities) {
-                    int sprId = -1;
-                    if (ent.type == ENT_FINISH) sprId = 13;
-                    else if (ent.type == ENT_SPAWNPOINT || ent.type == ENT_STARTPOINT) sprId = 12;
-                    else if (ent.type == ENT_COIN) sprId = 7;
-                    if (sprId >= 0) {
-                        auto it = spriteSheet.find(sprId);
-                        if (it != spriteSheet.end()) {
-                            it->second.setPosition(ent.position);
-                            window.draw(it->second);
-                        }
-                    }
-                }
+                drawMap3Lit(window, view1, true);
+                drawMap3Lit(window, view1, false);
+                drawMap3EntitiesLit(window, spriteSheet);
             }
             else {
                 drawBg(window, spriteSheet);
@@ -2036,21 +2193,9 @@ int main()
             }
             window.setView(view1);
             if (gUsingMap3) {
-                gMap3.drawBackground(window, MAP3_TILE_SIZE, view1);
-                gMap3.drawTiles(window, MAP3_TILE_SIZE, view1);
-                for (const auto& ent : gMap3.entities) {
-                    int sprId = -1;
-                    if (ent.type == ENT_FINISH) sprId = 13;
-                    else if (ent.type == ENT_SPAWNPOINT || ent.type == ENT_STARTPOINT) sprId = 12;
-                    else if (ent.type == ENT_COIN) sprId = 7;
-                    if (sprId >= 0) {
-                        auto it = spriteSheet.find(sprId);
-                        if (it != spriteSheet.end()) {
-                            it->second.setPosition(ent.position);
-                            window.draw(it->second);
-                        }
-                    }
-                }
+                drawMap3Lit(window, view1, true);
+                drawMap3Lit(window, view1, false);
+                drawMap3EntitiesLit(window, spriteSheet);
             }
             else {
                 drawBg(window, spriteSheet);

@@ -13,9 +13,8 @@ enum class EnemyState {
 
 class Enemy {
 private:
-    // ── Хитбокс (как shape у Player) ─────────────────────────────────────────
-    sf::RectangleShape hitbox;   // позиция и размер для физики/коллизий
-    sf::Sprite sprite;           // только визуал
+    sf::RectangleShape hitbox;
+    sf::Sprite sprite;
     sf::Vector2f spawnPos;
     float speed;
     float detectionRange;
@@ -44,12 +43,10 @@ private:
     float lookDuration;
     bool onGround;
 
-    // ── Запомненные размеры карты для обрезки конуса ──────────────────────────
     int   lastMapWidth = 0;
     int   lastMapHeight = 0;
     float lastTileSize = 32.f;
 
-    // ── Анимации (как у Player) ───────────────────────────────────────────────
     struct Animation {
         sf::Texture texture;
         std::vector<sf::IntRect> frames;
@@ -60,8 +57,8 @@ private:
     float animTimer = 0.f;
     float animSpeed = 0.12f;
     bool  attackPlaying = false;
-    bool  attackHitDealt = false;  // урон даётся на кадре 3, не при касании
-    int   pendingDamage = 0;      // урон готов к выдаче на нужном кадре
+    bool  attackHitDealt = false;
+    int   pendingDamage = 0;
 
     void setAnimation(const std::string& name);
     void updateAnimation(float dt);

@@ -4,7 +4,6 @@
 #include <iostream>
 #include <algorithm>
 
-
 static bool rectsIntersect(const sf::FloatRect& a, const sf::FloatRect& b) {
     return (a.position.x < b.position.x + b.size.x) &&
         (a.position.x + a.size.x > b.position.x) &&
@@ -56,7 +55,6 @@ Enemy::Enemy(float x, float y, sf::Texture& fallbackTexture, float tileSize)
     attackPlaying = false;
 }
 
-
 void Enemy::loadAnimations(const std::string& walkPath,
     const std::string& attackPath)
 {
@@ -64,42 +62,35 @@ void Enemy::loadAnimations(const std::string& walkPath,
         Animation& a = animations["walkToRight"];
         if (!a.texture.loadFromFile(walkPath))
             std::cout << "[Enemy] WARN: cannot load " << walkPath << "\n";
-
         a.frames.clear();
-        int fw = 64;
-        int fh = (int)a.texture.getSize().y;
-        int cnt = (fw > 0 && fh > 0) ? (int)a.texture.getSize().x / fw : 0;
-        if (cnt < 1) cnt = 1;
+        int fw = 64, fh = (int)a.texture.getSize().y;
+        int cnt = (fw > 0 && fh > 0) ? (int)a.texture.getSize().x / fw : 1;
         for (int i = 0; i < cnt; ++i)
             a.frames.push_back(sf::IntRect({ i * fw, 0 }, { fw, fh }));
-        std::cout << "[Enemy] walk frames: " << cnt << " (" << fw << "x" << fh << ")\n";
+        std::cout << "[Enemy] walk: " << cnt << " frames " << fw << "x" << fh << "\n";
     }
-
+    {
+        Animation& walk = animations["walkToRight"];
+        Animation& a = animations["idle"];
+        a.texture = walk.texture;
+        int idleCnt = std::min((int)walk.frames.size(), 2);
+        for (int i = 0; i < idleCnt; ++i)
+            a.frames.push_back(walk.frames[i]);
+    }
     {
         Animation& a = animations["attack"];
         if (!a.texture.loadFromFile(attackPath))
             std::cout << "[Enemy] WARN: cannot load " << attackPath << "\n";
-        int fw = 64;
-        int fh = (int)a.texture.getSize().y;
-        int cnt = (fw > 0 && fh > 0) ? (int)a.texture.getSize().x / fw : 0;
-        if (cnt < 1) cnt = 1;
+        a.frames.clear();
+        int fw = 64, fh = (int)a.texture.getSize().y;
+        int cnt = (fw > 0 && fh > 0) ? (int)a.texture.getSize().x / fw : 1;
         for (int i = 0; i < cnt; ++i)
             a.frames.push_back(sf::IntRect({ i * fw, 0 }, { fw, fh }));
-        std::cout << "[Enemy] attack frames: " << cnt << " (" << fw << "x" << fh << ")\n";
-    }
-
-    {
-        Animation& walkAnim = animations["walkToRight"];
-        Animation& a = animations["idle"];
-        a.texture = walkAnim.texture;
-        int idleCnt = std::min((int)walkAnim.frames.size(), 2);
-        for (int i = 0; i < idleCnt; ++i)
-            a.frames.push_back(walkAnim.frames[i]);
+        std::cout << "[Enemy] attack: " << cnt << " frames " << fw << "x" << fh << "\n";
     }
 
     setAnimation("idle");
 }
-
 
 void Enemy::setAnimation(const std::string& name) {
     if (currentAnimation == name) return;
@@ -116,7 +107,6 @@ void Enemy::setAnimation(const std::string& name) {
         sprite.setTextureRect(anim.frames[0]);
 }
 
-
 void Enemy::updateAnimation(float dt) {
     if (animations.empty()) return;
     auto it = animations.find(currentAnimation);
@@ -124,7 +114,7 @@ void Enemy::updateAnimation(float dt) {
 
     Animation& anim = it->second;
 
-    float spd = (currentAnimation == "idle") ? 0.30f
+    float spd = (currentAnimation == "idle") ? 0.35f
         : (currentAnimation == "walkToRight") ? 0.10f
         : (currentAnimation == "attack") ? 0.08f
         : animSpeed;
@@ -135,7 +125,7 @@ void Enemy::updateAnimation(float dt) {
         animFrame++;
 
         if (currentAnimation == "attack") {
-            if (animFrame == 3 && !attackHitDealt) {
+            if (animFrame == 2 && !attackHitDealt) {
                 attackHitDealt = true;
                 pendingDamage = contactDamage;
             }
@@ -154,7 +144,6 @@ void Enemy::updateAnimation(float dt) {
             sprite.setTextureRect(anim.frames[animFrame]);
     }
 }
-
 
 bool Enemy::hasLineOfSight(const sf::Vector2f& playerPos,
     int map[][501], int mapWidth, int mapHeight, float tileSize) const
@@ -343,19 +332,20 @@ void Enemy::update(float dt, const sf::Vector2f& playerPos,
 
     updateAnimation(dt);
 
-    float FRAME_W = 64.f;
-    float FRAME_H = 64.f;
+    static constexpr float CONTENT_CENTER_X = 32.f;
+    static constexpr float CONTENT_BOTTOM_Y = 48.f;
+    static constexpr float CONTENT_W = 30.f;
 
-    float targetW = hw;
-    float scale = targetW / FRAME_W;
-    if (scale > 2.5f) scale = 2.5f;
+    float scale = hw / CONTENT_W;
+    if (scale > 3.f) scale = 3.f;
     if (scale < 0.5f) scale = 0.5f;
 
-    sprite.setOrigin({ FRAME_W * 0.5f, FRAME_H });
-    sprite.setScale(facingDir > 0
+    sprite.setOrigin({ CONTENT_CENTER_X, CONTENT_BOTTOM_Y });
+    int renderDir = (currentAnimation == "attack") ? -facingDir : facingDir;
+    sprite.setScale(renderDir > 0
         ? sf::Vector2f{ scale, scale }
     : sf::Vector2f{ -scale, scale });
-    sprite.setPosition({ pos.x + hw * 0.5f, pos.y + hh + 4 });
+    sprite.setPosition({ pos.x + hw * 0.5f, pos.y + hh });
 }
 
 void Enemy::draw(sf::RenderWindow& window, bool debugMode) {
@@ -464,6 +454,10 @@ int Enemy::checkAndGetContactDamage(const sf::FloatRect& playerBounds, float dt)
     bool touching = rectsIntersect(playerBounds, hitbox.getGlobalBounds());
 
     if (touching && !attackPlaying && contactTimer <= 0.f) {
+        float playerCX = playerBounds.position.x + playerBounds.size.x * 0.5f;
+        float myCX = hitbox.getPosition().x + hitbox.getSize().x * 0.5f;
+        facingDir = (playerCX < myCX) ? -1 : 1;
+
         setAnimation("attack");
         animFrame = 0; animTimer = 0.f;
         auto& anim = animations["attack"];

@@ -97,11 +97,11 @@ void Player::loadAnimationSheets(const std::string& walkPath,
 
     animations["Attack"].texture.loadFromFile(attackPath);
     animations["Attack"].frames = {
-        IntRect({0,   0}, {128, 128}), 
+        IntRect({0,   0}, {128, 128}),
         //IntRect({128, 0}, {128, 128}),
-        IntRect({256, 0}, {128, 128}), 
+        IntRect({256, 0}, {128, 128}),
         //IntRect({384, 0}, {128, 128}),
-        IntRect({512, 0}, {128, 128}), 
+        IntRect({512, 0}, {128, 128}),
         IntRect({640, 0}, {128, 128}),
         //IntRect({768, 0}, {128, 128}),
         IntRect({896, 0}, {128, 128}),
@@ -547,7 +547,7 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
         else                                 attackDir = { -1.f, 0.f };
     }
 
-    if (currentAnimation == "Attack" && animationFrame == 4 && !attackHitDealt) {
+    if (currentAnimation == "Attack" && animationFrame == 3 && !attackHitDealt) {
         attackHitDealt = true;
         hitFreezeTimer = HIT_FREEZE_DURATION;
         sf::FloatRect pBounds = shape.getGlobalBounds();
@@ -1118,7 +1118,7 @@ void Player::update(float dt, const GameMap& gmap, float tileSize,
         else if (facingRight)         attackDir = { 1.f,  0.f };
         else                          attackDir = { -1.f,  0.f };
     }
-    if (currentAnimation == "Attack" && animationFrame == 4 && !attackHitDealt) {
+    if (currentAnimation == "Attack" && animationFrame == 3 && !attackHitDealt) {
         attackHitDealt = true; hitFreezeTimer = HIT_FREEZE_DURATION;
         sf::FloatRect pb = shape.getGlobalBounds();
         const float sR = 75.f, vR = 60.f;

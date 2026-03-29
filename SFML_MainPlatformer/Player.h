@@ -119,6 +119,8 @@ public:
     int getCoins() const { return coins; }
     float getStamina() const { return stamina; }
     float getMaxStamina() const { return maxStamina; }
+    bool getFacingRight() const { return facingRight; }
+    const std::string& getAnimName() const { return currentAnimation; }
     void setAttackKey(sf::Keyboard::Key k) { attackKey = k; }
     sf::Keyboard::Key getAttackKey() const { return attackKey; }
     bool hasFinishedDeathAnimation() const { return deathAnimationFinished; }

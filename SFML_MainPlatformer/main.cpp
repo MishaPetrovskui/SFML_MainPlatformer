@@ -16,6 +16,7 @@
 #include "Enemy.h"
 #pragma comment(lib, "winhttp.lib")
 #include "ApiClient.h"
+#include "MultiplayerClient.h"
 #include "Gamemap.h"
 #include "GameMap_Physics.h"
 
@@ -58,6 +59,10 @@ float gSawAnimTimer = 0.f;
 int   gSawAnimFrame = 0;
 const float SAW_FRAME_TIME = 0.08f;
 
+// Multiplayer ghost renderer and send timer
+GhostRenderer ghostRenderer;
+float mpSendTimer = 0.f;
+
 float TileSize = 40.f;
 const float MAP3_TILE_SIZE = 32.f;
 
@@ -73,7 +78,7 @@ enum GameState {
     PAUSED,
     GAME_OVER,
     BEST_TIMES_MENU,
-    LOGIN_MENU, REGISTER_MENU, LEADERBOARD_MENU, QUESTS_MENU, SHOP_MENU
+    LOGIN_MENU, REGISTER_MENU, LEADERBOARD_MENU, QUESTS_MENU, SHOP_MENU, LOBBY_MENU
 };
 
 int currentLevel = 1;
@@ -351,6 +356,7 @@ static void drawMap3Lit(sf::RenderWindow& window, sf::View& cam, bool isBg) {
             if (it == gMap3.sheet.end()) continue;
             float light = getMap3SmoothLight(x, y);
             float fl = isBg ? (light * 0.8f * 0.36f) : (light * 0.6f);
+            fl = std::max(fl, isBg ? 0.08f : 0.12f); // minimum ambient so map is visible
             fl = std::min(fl, 1.0f);
             int br2 = (int)(fl * (isBg ? 230.f : 255.f));
             it->second.setColor(sf::Color(br2, br2, br2));
@@ -388,6 +394,7 @@ static void drawMap3EntitiesLit(sf::RenderWindow& window,
         int ty = (int)(ent.position.y / MAP3_TILE_SIZE);
         float light = getMap3SmoothLight(tx, ty);
         float entLight = std::max(light, ent.light);
+        entLight = std::max(entLight, 0.15f); // minimum ambient for entities
         entLight = std::min(entLight, 1.f);
         sf::Color col((uint8_t)(255 * entLight), (uint8_t)(255 * entLight), (uint8_t)(255 * entLight));
 
@@ -679,8 +686,95 @@ void DrawLevelsMenu(RenderWindow& window, Font& font, Vector2i mousePos) {
     FloatRect bestTimesRect({ 450.f, 460.f }, { 300.f, 50.f });
     DrawMenuButton(window, bestTimesRect, "BEST TIMES", font, bestTimesRect.contains(Vector2f(mousePos)));
 
-    FloatRect backRect({ 450.f, 540.f }, { 300.f, 50.f });
+    FloatRect lobbyRect({ 450.f, 530.f }, { 300.f, 50.f });
+    DrawMenuButton(window, lobbyRect, "MULTIPLAYER", font, lobbyRect.contains(Vector2f(mousePos)));
+
+    FloatRect backRect({ 450.f, 600.f }, { 300.f, 50.f });
     DrawMenuButton(window, backRect, "BACK", font, backRect.contains(Vector2f(mousePos)));
+}
+
+void DrawLobbyMenu(RenderWindow& window, Font& font, Vector2i mousePos, bool connected, int connectedLevel) {
+    window.setView(FIXED_UI_VIEW);
+
+    Text title(font, "MULTIPLAYER", 48);
+    title.setFillColor(Color::White);
+    FloatRect tb = title.getLocalBounds();
+    title.setPosition({ (1200.f - tb.size.x) / 2.f, 80.f });
+    window.draw(title);
+
+    // Connection status
+    std::string statusStr = connected
+        ? ("CONNECTED - Level " + std::to_string(connectedLevel))
+        : "Connect via web app or login to play with others";
+    Text statusTxt(font, statusStr, 18);
+    statusTxt.setFillColor(connected ? Color(100, 255, 100) : Color(180, 180, 200));
+    FloatRect sb = statusTxt.getLocalBounds();
+    statusTxt.setPosition({ (1200.f - sb.size.x) / 2.f, 145.f });
+    window.draw(statusTxt);
+
+    // Lobby cards for each level
+    const char* levelNames[3] = { "Forest Run", "Dark Caves", "Sky Fortress" };
+    const Color levelColors[3] = { Color(60,150,60), Color(80,80,160), Color(160,100,40) };
+    for (int i = 0; i < 3; i++) {
+        float cardX = 150.f + i * 310.f;
+        float cardY = 210.f;
+        float cardW = 270.f, cardH = 200.f;
+
+        bool isActive = connected && (connectedLevel == i + 1);
+        RectangleShape card({ cardW, cardH });
+        card.setPosition({ cardX, cardY });
+        card.setFillColor(isActive ? Color(20, 60, 20, 200) : Color(20, 20, 40, 200));
+        card.setOutlineColor(isActive ? Color(100, 255, 100) : Color(80, 80, 120));
+        card.setOutlineThickness(isActive ? 2.f : 1.f);
+        window.draw(card);
+
+        if (isActive) {
+            RectangleShape topBar({ cardW, 3.f });
+            topBar.setPosition({ cardX, cardY });
+            topBar.setFillColor(Color(100, 255, 100));
+            window.draw(topBar);
+        }
+
+        Text lvlNum(font, "LEVEL " + std::to_string(i + 1), 14);
+        lvlNum.setFillColor(Color(160, 160, 200));
+        FloatRect nb = lvlNum.getLocalBounds();
+        lvlNum.setPosition({ cardX + (cardW - nb.size.x) / 2.f, cardY + 15.f });
+        window.draw(lvlNum);
+
+        Text lvlName(font, levelNames[i], 22);
+        lvlName.setFillColor(Color::White);
+        FloatRect lnb = lvlName.getLocalBounds();
+        lvlName.setPosition({ cardX + (cardW - lnb.size.x) / 2.f, cardY + 45.f });
+        window.draw(lvlName);
+
+        if (isActive) {
+            Text activeTxt(font, "YOU ARE HERE", 13);
+            activeTxt.setFillColor(Color(100, 255, 100));
+            FloatRect ab = activeTxt.getLocalBounds();
+            activeTxt.setPosition({ cardX + (cardW - ab.size.x) / 2.f, cardY + 90.f });
+            window.draw(activeTxt);
+        }
+
+        // Play button
+        FloatRect playBtn({ cardX + 40.f, cardY + 140.f }, { cardW - 80.f, 40.f });
+        DrawMenuButton(window, playBtn, "PLAY", font, playBtn.contains(Vector2f(mousePos)));
+    }
+
+    // Info
+    Text info1(font, "Other players appear as blue ghosts in-game.", 16);
+    info1.setFillColor(Color(160, 160, 200));
+    FloatRect i1b = info1.getLocalBounds();
+    info1.setPosition({ (1200.f - i1b.size.x) / 2.f, 440.f });
+    window.draw(info1);
+
+    Text info2(font, "Login via pixelrun.web to manage your lobby.", 16);
+    info2.setFillColor(Color(160, 160, 200));
+    FloatRect i2b = info2.getLocalBounds();
+    info2.setPosition({ (1200.f - i2b.size.x) / 2.f, 470.f });
+    window.draw(info2);
+
+    FloatRect backBtn({ 450.f, 530.f }, { 300.f, 50.f });
+    DrawMenuButton(window, backBtn, "BACK", font, backBtn.contains(Vector2f(mousePos)));
 }
 
 void DrawBestTimesMenu(RenderWindow& window, Font& font, Vector2i mousePos) {
@@ -694,7 +788,7 @@ void DrawBestTimesMenu(RenderWindow& window, Font& font, Vector2i mousePos) {
 
     float yPos = 200.f;
 
-    for (int lvl = 1; lvl <= 2; ++lvl) {
+    for (int lvl = 1; lvl <= 3; ++lvl) {
         string levelText = "LEVEL " + to_string(lvl);
         Text lvlTitle(font, levelText, 28);
         lvlTitle.setFillColor(Color::Yellow);
@@ -1522,6 +1616,7 @@ int main()
     );
     Clock clock;
     GameState gameState = MAIN_MENU;
+    ghostRenderer.init(font, "Sprites/slime_walk.png");
 
     bool waitingForRemap = false;
     Texture menuBgTexture;
@@ -1546,8 +1641,10 @@ int main()
     while (window.isOpen()) {
         while (const optional event = window.pollEvent())
         {
-            if (event->is<Event::Closed>())
+            if (event->is<Event::Closed>()) {
+                MultiplayerClient::instance().disconnect();
                 window.close();
+            }
 
             if (event->is<Event::Resized>()) {
                 Vector2f savedCenter = view1.getCenter();
@@ -1577,6 +1674,9 @@ int main()
                         player.reset();
                     }
                     else if (gameState == BEST_TIMES_MENU) {
+                        gameState = LEVELS_MENU;
+                    }
+                    else if (gameState == LOBBY_MENU) {
                         gameState = LEVELS_MENU;
                     }
                     else {
@@ -1689,7 +1789,8 @@ int main()
                     FloatRect level2({ 450.f, 320.f }, { 300.f, 50.f });
                     FloatRect level3({ 450.f, 390.f }, { 300.f, 50.f });
                     FloatRect bestTimes({ 450.f, 460.f }, { 300.f, 50.f });
-                    FloatRect back({ 450.f, 540.f }, { 300.f, 50.f });
+                    FloatRect lobby({ 450.f, 530.f }, { 300.f, 50.f });
+                    FloatRect back({ 450.f, 600.f }, { 300.f, 50.f });
 
                     if (level1.contains(mouse)) {
                         currentLevel = 1;
@@ -1702,6 +1803,9 @@ int main()
                         finalTime = 0.f; finalCoins = 0; finalKills = 0;
                         StartdoorPosition = Vector2f(3600.f, 0.f);
                         EnddoorPosition = Vector2f(3651.f, 0.f);
+                        if (ApiClient::instance().player.loggedIn)
+                            MultiplayerClient::instance().connect("localhost", 5001,
+                                ApiClient::instance().player.token, ApiClient::instance().player.username);
                     }
                     else if (level2.contains(mouse)) {
                         currentLevel = 2;
@@ -1714,6 +1818,9 @@ int main()
                         finalTime = 0.f; finalCoins = 0; finalKills = 0;
                         StartdoorPosition = Vector2f(4400.f, 0.f);
                         EnddoorPosition = Vector2f(4444.f, 0.f);
+                        if (ApiClient::instance().player.loggedIn)
+                            MultiplayerClient::instance().connect("localhost", 5001,
+                                ApiClient::instance().player.token, ApiClient::instance().player.username);
                     }
                     else if (level3.contains(mouse)) {
                         currentLevel = 3;
@@ -1846,7 +1953,108 @@ int main()
                     else if (bestTimes.contains(mouse)) {
                         gameState = BEST_TIMES_MENU;
                     }
+                    else if (lobby.contains(mouse)) {
+                        gameState = LOBBY_MENU;
+                    }
                     else if (back.contains(mouse)) gameState = MAIN_MENU;
+                }
+                else if (gameState == LOBBY_MENU) {
+                    FloatRect backBtn({ 450.f, 530.f }, { 300.f, 50.f });
+                    if (backBtn.contains(mouse)) { gameState = LEVELS_MENU; }
+                    else {
+                        for (int i = 0; i < 3; i++) {
+                            float cardX = 150.f + i * 310.f;
+                            FloatRect playBtn({ cardX + 40.f, 210.f + 140.f }, { 190.f, 40.f });
+                            if (playBtn.contains(mouse)) {
+                                currentLevel = i + 1;
+                                if (currentLevel == 3) {
+                                    gUsingMap3 = true;
+                                    gMap3 = GameMap();
+                                    gMap3.load("Map3.bin");
+                                    gMap3.textures.clear(); gMap3.sheet.clear();
+                                    auto loadM3Tex2 = [&](int id, const std::string& path, sf::IntRect crop = sf::IntRect()) {
+                                        gMap3.textures[id] = sf::Texture();
+                                        bool ok = (crop.size.x > 0 && crop.size.y > 0)
+                                            ? gMap3.textures[id].loadFromFile(path, false, crop)
+                                            : gMap3.textures[id].loadFromFile(path);
+                                        if (!ok) std::cout << "[Map3] WARN: " << path << "\n";
+                                        };
+                                    loadM3Tex2(0, "Sprites/Undefined.png");
+                                    loadM3Tex2(1, "Sprites/rock_6.png");
+                                    loadM3Tex2(2, "Sprites/slime 2.png", sf::IntRect({ 16,16 }, { 32,32 }));
+                                    loadM3Tex2(3, "Sprites/background.png");
+                                    loadM3Tex2(4, "Sprites/StoneBrick.png");
+                                    loadM3Tex2(5, "Sprites/StoneBrickBack.png");
+                                    loadM3Tex2(6, "Sprites/Torch.png");
+                                    loadM3Tex2(7, "Sprites/Saw.png");
+                                    gTorchFullTex.loadFromFile("Sprites/Torch.png");
+                                    gTorchFrameCount = std::max(1, (int)(gTorchFullTex.getSize().x / TORCH_FW));
+                                    gSawFullTex.loadFromFile("Sprites/Saw.png");
+                                    gSawFrameCount = std::max(1, (int)(gSawFullTex.getSize().x / SAW_FW));
+                                    for (int ri = 52; ri <= 60; ri++) loadM3Tex2(ri, "Sprites/rock_" + std::to_string((ri - 51) % 6 + 1) + ".png");
+                                    for (auto& [id, tx] : gMap3.textures) {
+                                        sf::Sprite spr(tx); auto sz = tx.getSize();
+                                        if (sz.x > 0 && sz.y > 0) spr.setScale({ MAP3_TILE_SIZE / (float)sz.x, MAP3_TILE_SIZE / (float)sz.y });
+                                        gMap3.sheet.emplace(id, spr);
+                                    }
+                                    memset(MAP, -1, sizeof(MAP)); memset(MobMAP, -1, sizeof(MobMAP));
+                                    memset(InterestingMAP, -1, sizeof(InterestingMAP)); memset(BackgroundMAP, -1, sizeof(BackgroundMAP));
+                                    GMP::buildMapFromColliders<MAP3_H, MAP3_W>(MAP3_TILES, gMap3, 32.f);
+                                    float rMinX = 0.f, rMaxX = 9999.f, rMinY = 0.f, rMaxY = 9999.f;
+                                    if (!gMap3.colliders.empty()) {
+                                        rMinX = gMap3.colliders[0].x; rMaxX = gMap3.colliders[0].x + gMap3.colliders[0].width;
+                                        rMinY = gMap3.colliders[0].y; rMaxY = gMap3.colliders[0].y + gMap3.colliders[0].height;
+                                        for (auto& col : gMap3.colliders) {
+                                            rMinX = std::min(rMinX, col.x); rMaxX = std::max(rMaxX, col.x + col.width);
+                                            rMinY = std::min(rMinY, col.y); rMaxY = std::max(rMaxY, col.y + col.height);
+                                        }
+                                        gMap3WorldW = rMaxX + 200.f; gMap3WorldH = rMaxY + 200.f;
+                                    }
+                                    enemies.clear();
+                                    for (auto& ent : gMap3.entities) {
+                                        if (ent.type != ENT_ENEMY || ent.textureId < 0 || ent.position.x <= 0.f) continue;
+                                        float footY = ent.position.y + MAP3_TILE_SIZE; bool hasGround = false;
+                                        for (auto& col : gMap3.colliders) {
+                                            if (ent.position.x + MAP3_TILE_SIZE * 0.8f > col.x && ent.position.x + MAP3_TILE_SIZE * 0.2f < col.x + col.width
+                                                && footY >= col.y - MAP3_TILE_SIZE && footY <= col.y + 4.f) {
+                                                hasGround = true; break;
+                                            }
+                                        }
+                                        if (!hasGround) continue;
+                                        sf::Texture& tex = (ent.textureId == 9) ? tx_SlimeMan : tx_Slime;
+                                        enemies.emplace_back(ent.position.x, ent.position.y, tex, MAP3_TILE_SIZE);
+                                    }
+                                    for (auto& e : enemies) e.loadAnimations("Sprites/slime_walk.png", "Sprites/slime_attack.png");
+                                    calculateMap3Light();
+                                    auto spawn = gMap3.getSafeSpawn(30.f, 40.f);
+                                    player.setSpawnPoint(spawn.x, spawn.y);
+                                    player.reset(); player.setLimitedDashMode(limitedDashMode);
+                                    view1 = View(FloatRect({ 0.f, 0.f }, { 1200.f, 800.f }));
+                                    view1.setCenter(spawn);
+                                    sf::Vector2f fin = gMap3.getFinishPoint();
+                                    StartdoorPosition = fin;
+                                    EnddoorPosition = { fin.x + MAP3_TILE_SIZE, fin.y + MAP3_TILE_SIZE };
+                                }
+                                else {
+                                    gUsingMap3 = false;
+                                    initializeLevel(currentLevel, mobTemplate, enemies, tx_Slime, tx_SlimeMan, OriginalInterestingMAP, player);
+                                    player.reset(); player.setLimitedDashMode(limitedDashMode);
+                                    StartdoorPosition = currentLevel == 1 ? Vector2f(3600.f, 0.f) : Vector2f(4400.f, 0.f);
+                                    EnddoorPosition = currentLevel == 1 ? Vector2f(3651.f, 0.f) : Vector2f(4444.f, 0.f);
+                                }
+                                if (ApiClient::instance().player.loggedIn) {
+                                    MultiplayerClient::instance().connect(
+                                        "localhost", 5001,
+                                        ApiClient::instance().player.token,
+                                        ApiClient::instance().player.username);
+                                }
+                                time = 0.f; levelCompleted = false;
+                                finalTime = 0.f; finalCoins = 0; finalKills = 0;
+                                gameState = PLAYING;
+                                break;
+                            }
+                        }
+                    }
                 }
                 else if (gameState == BEST_TIMES_MENU) {
                     FloatRect back({ 450.f, 650.f }, { 300.f, 50.f });
@@ -1989,8 +2197,13 @@ int main()
             if (apiStatus == ApiStatus::Success) {
                 loginError = ApiClient::instance().getStatusMessage();
                 ApiClient::instance().status = ApiStatus::Idle;
-                if (gameState == LOGIN_MENU && ApiClient::instance().player.loggedIn)
+                if (gameState == LOGIN_MENU && ApiClient::instance().player.loggedIn) {
+                    MultiplayerClient::instance().connect(
+                        "localhost", 5001,
+                        ApiClient::instance().player.token,
+                        ApiClient::instance().player.username);
                     gameState = MAIN_MENU;
+                }
             }
             else if (apiStatus == ApiStatus::Error) {
                 loginError = ApiClient::instance().getStatusMessage();
@@ -2080,6 +2293,18 @@ int main()
                     }
                 }
 
+                // Send multiplayer position ~10 Hz
+                mpSendTimer += dt;
+                if (mpSendTimer >= 0.1f) {
+                    mpSendTimer = 0.f;
+                    auto mp = player.getPosition();
+                    MultiplayerClient::instance().sendPosition(
+                        mp.x, mp.y, currentLevel,
+                        player.getFacingRight(),
+                        player.getAnimName().empty() ? "idle" : player.getAnimName());
+                }
+                ghostRenderer.update(dt);
+
                 if (!player.isAlive() && player.hasFinishedDeathAnimation()) {
                     levelCompleted = false;
                     finalTime = time;
@@ -2147,7 +2372,7 @@ int main()
         if (gameState == MAIN_MENU || gameState == LEVELS_MENU ||
             gameState == CREATORS_MENU || gameState == SETTINGS_MENU ||
             gameState == BEST_TIMES_MENU || gameState == LOGIN_MENU ||
-            gameState == QUESTS_MENU || gameState == SHOP_MENU) {
+            gameState == QUESTS_MENU || gameState == SHOP_MENU || gameState == LOBBY_MENU) {
             if (hasMenuBg) {
                 menuBgTexture.setRepeated(true);
                 Vector2u texSize = menuBgTexture.getSize();
@@ -2181,6 +2406,10 @@ int main()
         else if (gameState == LEVELS_MENU) {
             DrawLevelsMenu(window, font, mousePos);
         }
+        else if (gameState == LOBBY_MENU) {
+            bool mpConn = MultiplayerClient::instance().isConnected();
+            DrawLobbyMenu(window, font, mousePos, mpConn, currentLevel);
+        }
         else if (gameState == BEST_TIMES_MENU) {
             DrawBestTimesMenu(window, font, mousePos);
         }
@@ -2206,6 +2435,12 @@ int main()
             }
 
             for (auto& e : enemies) e.draw(window, debugMode);
+
+            // Draw multiplayer ghosts (other players)
+            {
+                auto mpOthers = MultiplayerClient::instance().getOtherPlayers();
+                ghostRenderer.draw(window, mpOthers, view1);
+            }
 
             player.draw(window, view1, font, debugMode);
             if (debugMode && !gUsingMap3) {

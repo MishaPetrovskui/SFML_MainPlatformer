@@ -53,6 +53,13 @@ struct ApiLeaderboardEntry {
     int coins = 0;
 };
 
+struct ApiLobbyRoom {
+    int level = 0;
+    std::string name;
+    int online = 0;
+    std::vector<std::string> playerNames; // up to ~6
+};
+
 enum class ApiStatus { Idle, Loading, Success, Error };
 
 class ApiClient {
@@ -214,6 +221,58 @@ public:
     }
 
     std::vector<ApiSkin> cachedSkins;
+    std::vector<ApiLobbyRoom> cachedRooms; // updated by getLobbyRoomsAsync
+
+    void getLobbyRoomsAsync() {
+        std::thread([this]() {
+            std::string resp = get("/api/lobby/rooms");
+            if (resp.empty()) return;
+            std::vector<ApiLobbyRoom> rooms;
+            size_t pos = 0;
+            while ((pos = resp.find('{', pos)) != std::string::npos) {
+                size_t end = resp.find('}', pos);
+                if (end == std::string::npos) break;
+                std::string item = resp.substr(pos, end - pos + 1);
+                // skip nested objects (players array)
+                if (item.find("\"level\":") != std::string::npos &&
+                    item.find("\"online\":") != std::string::npos) {
+                    ApiLobbyRoom r;
+                    r.level = extractInt(item, "level");
+                    r.online = extractInt(item, "online");
+                    r.name = extractStr(item, "name");
+                    if (r.level > 0) rooms.push_back(r);
+                }
+                pos = end + 1;
+            }
+            // parse player names from "players":[{"username":"..."},...]
+            for (auto& r : rooms) {
+                std::string search = "\"players\":[";
+                size_t arr = resp.find(search);
+                // find the right occurrence (match level context)
+                size_t searchFrom = 0;
+                while (arr != std::string::npos) {
+                    size_t arrEnd = resp.find(']', arr);
+                    if (arrEnd == std::string::npos) break;
+                    std::string arrStr = resp.substr(arr, arrEnd - arr + 1);
+                    // find usernames in this array
+                    r.playerNames.clear();
+                    size_t p2 = 0;
+                    while (true) {
+                        auto u = arrStr.find("\"username\":\"", p2);
+                        if (u == std::string::npos) break;
+                        u += 12;
+                        auto ue = arrStr.find('"', u);
+                        if (ue == std::string::npos) break;
+                        r.playerNames.push_back(arrStr.substr(u, ue - u));
+                        p2 = ue + 1;
+                    }
+                    break; // simplified: just grab first players array per room
+                }
+            }
+            std::lock_guard<std::mutex> lk(statusMutex);
+            cachedRooms = rooms;
+            }).detach();
+    }
 
     std::string getStatusMessage() {
         std::lock_guard<std::mutex> lock(statusMutex);

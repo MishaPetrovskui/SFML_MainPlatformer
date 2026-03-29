@@ -40,6 +40,7 @@ float   gMap3WorldW = 500 * 32.f;
 float   gMap3WorldH = 500 * 32.f;
 float   gMap3LightMap[500][500] = {};
 
+// Torch animation — each frame is always 32×32 (matches map creator crop)
 sf::Texture gTorchFullTex;
 static constexpr int TORCH_FW = 32;
 static constexpr int TORCH_FH = 32;
@@ -47,6 +48,15 @@ int         gTorchFrameCount = 1;
 float       gTorchAnimTimer = 0.f;
 int         gTorchAnimFrame = 0;
 const float TORCH_FRAME_TIME = 0.12f;
+
+// Saw animation
+sf::Texture gSawFullTex;
+static constexpr int SAW_FW = 32;
+static constexpr int SAW_FH = 32;
+int   gSawFrameCount = 1;
+float gSawAnimTimer = 0.f;
+int   gSawAnimFrame = 0;
+const float SAW_FRAME_TIME = 0.08f;
 
 float TileSize = 40.f;
 const float MAP3_TILE_SIZE = 32.f;
@@ -278,6 +288,7 @@ static string keyToString(Keyboard::Key k) {
     }
 }
 
+// ── Map3 lighting (mirrors map creator depth-preview) ─────────────────────────
 static float getMap3SmoothLight(int x, int y) {
     float sum = 0.f; int cnt = 0;
     for (int dy = -1; dy <= 1; dy++)
@@ -323,6 +334,7 @@ static void calculateMap3Light() {
     }
 }
 
+// Draws map3 background/tiles with depth-preview lighting applied
 static void drawMap3Lit(sf::RenderWindow& window, sf::View& cam, bool isBg) {
     sf::Vector2f tl = cam.getCenter() - cam.getSize() / 2.f;
     sf::Vector2f br = cam.getCenter() + cam.getSize() / 2.f;
@@ -345,25 +357,32 @@ static void drawMap3Lit(sf::RenderWindow& window, sf::View& cam, bool isBg) {
             it->second.setPosition({ x * MAP3_TILE_SIZE, y * MAP3_TILE_SIZE });
             window.draw(it->second);
         }
+    // reset color so sprites aren't permanently tinted
     for (auto& [id, spr] : gMap3.sheet) spr.setColor(sf::Color::White);
 }
 
+// Draw map3 entities (coins, torches, finish) with lighting
 static void drawMap3EntitiesLit(sf::RenderWindow& window,
     std::map<int, sf::Sprite>& spriteSheet)
 {
+    // Build animated torch sprite if texture is loaded
     bool hasTorch = (gTorchFullTex.getSize().x > 0);
+    // Frame dimensions are always 32×32 — don't derive from frame count
     constexpr int tFW = TORCH_FW, tFH = TORCH_FH;
+
+    bool hasSaw = (gSawFullTex.getSize().x > 0);
 
     for (const auto& ent : gMap3.entities) {
         int sprId = -1;
-        bool useMap3Sheet = false;
         bool isTorch = false;
+        bool isSaw = false;
         if (ent.type == ENT_FINISH)   sprId = 13;
         else if (ent.type == ENT_SPAWNPOINT || ent.type == ENT_STARTPOINT) sprId = 12;
         else if (ent.type == ENT_COIN) sprId = 7;
-        else if ((int)ent.type == 8) { isTorch = true; }
+        else if ((int)ent.type == 8) { isTorch = true; } // LightElem = torch
+        else if (ent.type == ENT_TRAP) { isSaw = true; }
 
-        if (sprId < 0 && !isTorch) continue;
+        if (sprId < 0 && !isTorch && !isSaw) continue;
 
         int tx = (int)(ent.position.x / MAP3_TILE_SIZE);
         int ty = (int)(ent.position.y / MAP3_TILE_SIZE);
@@ -388,6 +407,22 @@ static void drawMap3EntitiesLit(sf::RenderWindow& window,
                 it->second.setColor(sf::Color::White);
             }
         }
+        else if (isSaw && hasSaw) {
+            sf::Sprite sawSpr(gSawFullTex,
+                sf::IntRect({ gSawAnimFrame * SAW_FW, 0 }, { SAW_FW, SAW_FH }));
+            sawSpr.setColor(col);
+            sawSpr.setPosition(ent.position);
+            window.draw(sawSpr);
+        }
+        else if (isSaw) {
+            auto it = gMap3.sheet.find(7);
+            if (it != gMap3.sheet.end()) {
+                it->second.setColor(col);
+                it->second.setPosition(ent.position);
+                window.draw(it->second);
+                it->second.setColor(sf::Color::White);
+            }
+        }
         else {
             auto it = spriteSheet.find(sprId);
             if (it != spriteSheet.end()) {
@@ -402,6 +437,7 @@ static void drawMap3EntitiesLit(sf::RenderWindow& window,
         }
     }
 }
+// ──────────────────────────────────────────────────────────────────────────────
 
 void drawMap(RenderWindow& window, map<int, Sprite>& spriteSheet)
 {
@@ -1686,6 +1722,7 @@ int main()
                         gMap3.load("Map3.bin");
                         gMap3.textures.clear();
                         gMap3.sheet.clear();
+                        // Load textures matching map creator tile IDs exactly
                         auto loadM3Tex = [&](int id, const std::string& path,
                             sf::IntRect crop = sf::IntRect()) {
                                 gMap3.textures[id] = sf::Texture();
@@ -1702,9 +1739,15 @@ int main()
                         loadM3Tex(4, "Sprites/StoneBrick.png");
                         loadM3Tex(5, "Sprites/StoneBrickBack.png");
                         loadM3Tex(6, "Sprites/Torch.png");
+                        loadM3Tex(7, "Sprites/Saw.png");
+                        // Load full torch spritesheet for animation
                         gTorchFullTex.loadFromFile("Sprites/Torch.png");
                         gTorchFrameCount = std::max(1, (int)(gTorchFullTex.getSize().x / TORCH_FW));
                         gTorchAnimTimer = 0.f; gTorchAnimFrame = 0;
+                        // Load saw spritesheet
+                        gSawFullTex.loadFromFile("Sprites/Saw.png");
+                        gSawFrameCount = std::max(1, (int)(gSawFullTex.getSize().x / SAW_FW));
+                        gSawAnimTimer = 0.f; gSawAnimFrame = 0;
                         loadM3Tex(52, "Sprites/rock_1.png");
                         loadM3Tex(53, "Sprites/rock_2.png");
                         loadM3Tex(54, "Sprites/rock_3.png");
@@ -1715,6 +1758,7 @@ int main()
                         loadM3Tex(59, "Sprites/rock_2.png");
                         loadM3Tex(60, "Sprites/rock_3.png");
 
+                        // Build sprite sheet with scale normalised to MAP3_TILE_SIZE (32px)
                         for (auto& [id, tx] : gMap3.textures) {
                             sf::Sprite spr(tx);
                             auto sz = tx.getSize();
@@ -1744,16 +1788,20 @@ int main()
                                 mapMaxY = std::max(mapMaxY, col.y + col.height);
                             }
                         }
+                        // Сохраняем реальные размеры для зажима камеры
                         gMap3WorldW = mapMaxX + 200.f;
                         gMap3WorldH = mapMaxY + 200.f;
 
                         enemies.clear();
                         for (auto& ent : gMap3.entities) {
                             if (ent.type != ENT_ENEMY) continue;
+                            // Skip invalid/uninitialized entities
                             if (ent.textureId < 0) continue;
                             if (ent.position.x <= 0.f || ent.position.y <= 0.f) continue;
+                            // Must be within map bounds
                             if (ent.position.x < mapMinX || ent.position.x > mapMaxX ||
                                 ent.position.y < mapMinY || ent.position.y > mapMaxY) continue;
+                            // Must have a collider surface directly underfoot (within 32px)
                             float footY = ent.position.y + MAP3_TILE_SIZE;
                             bool hasGround = false;
                             for (auto& col : gMap3.colliders) {
@@ -1952,11 +2000,17 @@ int main()
 
         float dt = std::min(clock.restart().asSeconds(), 1.f / 30.f);
 
+        // Torch animation
         if (gUsingMap3) {
             gTorchAnimTimer += dt;
             if (gTorchAnimTimer >= TORCH_FRAME_TIME) {
                 gTorchAnimTimer -= TORCH_FRAME_TIME;
                 gTorchAnimFrame = (gTorchAnimFrame + 1) % gTorchFrameCount;
+            }
+            gSawAnimTimer += dt;
+            if (gSawAnimTimer >= SAW_FRAME_TIME) {
+                gSawAnimTimer -= SAW_FRAME_TIME;
+                gSawAnimFrame = (gSawAnimFrame + 1) % gSawFrameCount;
             }
         }
 
@@ -1996,6 +2050,15 @@ int main()
 
                 if (gUsingMap3) {
                     player.update(dt, gMap3, MAP3_TILE_SIZE, view1, window, enemies);
+                    // Saw trap damage
+                    sf::Vector2f pp = player.getPosition();
+                    sf::FloatRect pRect(pp, { 30.f, 40.f });
+                    for (auto& ent : gMap3.entities) {
+                        if (ent.type != ENT_TRAP) continue;
+                        sf::FloatRect sRect(ent.position, { (float)SAW_FW, (float)SAW_FH });
+                        if (pRect.findIntersection(sRect))
+                            player.applyDamage(1);
+                    }
                 }
                 else {
                     player.update(dt, MAP, MAP_WIDTH, MAP_HEIGHT, TileSize, view1, window, MobMAP, InterestingMAP, BackgroundMAP, enemies);

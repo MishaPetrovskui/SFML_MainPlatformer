@@ -342,7 +342,7 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
 
         sf::Vector2f dp = deathSpritePos;
         dp.x += shape.getSize().x * 0.5f;
-        dp.y += shape.getSize().y;
+        dp.y += shape.getSize().y - 3.f;
         sprite.setPosition(dp);
         return;
     }
@@ -417,10 +417,20 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
         bool touchingWall = checkWallContact(map, mapWidth, mapHeight, tileSize);
 
         if (touchingWall && !onGround && velocity.y > 0.f && wallJumpLockTimer <= 0.f) {
-
-            isSliding = true;
-            const float WALL_SLIDE_SPEED = 35.f;
-            velocity.y = WALL_SLIDE_SPEED;
+            bool holdingTowardWall = (wallDirection == -1 && sf::Keyboard::isKeyPressed(sf::Keyboard::Key::A)) ||
+                (wallDirection == -1 && sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Left)) ||
+                (wallDirection == 1 && sf::Keyboard::isKeyPressed(sf::Keyboard::Key::D)) ||
+                (wallDirection == 1 && sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Right));
+            if (holdingTowardWall) {
+                isSliding = true;
+                const float WALL_SLIDE_SPEED = 35.f;
+                velocity.y = WALL_SLIDE_SPEED;
+            }
+            else {
+                isSliding = false;
+                const float WALL_FALL_SPEED = 120.f;
+                if (velocity.y < WALL_FALL_SPEED) velocity.y = WALL_FALL_SPEED;
+            }
             facingRight = (wallDirection == -1);
 
             bool wantWallJump = jumpJustPressed || jumpBufferTimer > 0.f;
@@ -692,7 +702,7 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
 
     sf::Vector2f spritePos = shape.getPosition();
     spritePos.x += shape.getSize().x * 0.5f;
-    spritePos.y += shape.getSize().y;
+    spritePos.y += shape.getSize().y - 3.f;
     sprite.setPosition(spritePos);
 
     sf::FloatRect playerBounds = shape.getGlobalBounds();
@@ -967,7 +977,7 @@ void Player::update(float dt, const GameMap& gmap, float tileSize,
         sprite.setScale(facingRight ? sf::Vector2f{ sprScale, sprScale } : sf::Vector2f{ -sprScale, sprScale });
         sf::Vector2f dp = deathSpritePos;
         dp.x += shape.getSize().x * 0.5f;
-        dp.y += shape.getSize().y;
+        dp.y += shape.getSize().y - 3.f;
         sprite.setPosition(dp);
         return;
     }
@@ -1024,8 +1034,18 @@ void Player::update(float dt, const GameMap& gmap, float tileSize,
 
         bool touchingWall = checkWallContactGMap(gmap);
         if (touchingWall && !onGround && velocity.y > 0.f && wallJumpLockTimer <= 0.f) {
-            isSliding = true;
-            velocity.y = 35.f;
+            bool holdingTowardWall = (wallDirection == -1 && sf::Keyboard::isKeyPressed(sf::Keyboard::Key::A)) ||
+                (wallDirection == -1 && sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Left)) ||
+                (wallDirection == 1 && sf::Keyboard::isKeyPressed(sf::Keyboard::Key::D)) ||
+                (wallDirection == 1 && sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Right));
+            if (holdingTowardWall) {
+                isSliding = true;
+                velocity.y = 35.f;
+            }
+            else {
+                isSliding = false;
+                if (velocity.y < 120.f) velocity.y = 120.f;
+            }
             facingRight = (wallDirection == -1);
             bool wantWallJump = jumpJustPressed || jumpBufferTimer > 0.f;
             if (wantWallJump) {
@@ -1220,6 +1240,6 @@ void Player::update(float dt, const GameMap& gmap, float tileSize,
     sprite.setScale(facingRight ? sf::Vector2f{ sprScale, sprScale } : sf::Vector2f{ -sprScale, sprScale });
     sf::Vector2f sp = shape.getPosition();
     sp.x += shape.getSize().x * 0.5f;
-    sp.y += shape.getSize().y;
+    sp.y += shape.getSize().y - 3.f;
     sprite.setPosition(sp);
 }

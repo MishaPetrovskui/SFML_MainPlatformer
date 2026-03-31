@@ -55,6 +55,22 @@ Enemy::Enemy(float x, float y, sf::Texture& fallbackTexture, float tileSize)
     attackPlaying = false;
 }
 
+void Enemy::initFromMapEntity(int hp_val, int dmg_val, float spd_val, float light_val) {
+    // Применяем только ненулевые значения — дефолты из конструктора остаются как fallback
+    if (hp_val > 0) {
+        maxHp = hp_val;
+        hp = maxHp;
+    }
+    if (dmg_val > 0) {
+        contactDamage = dmg_val;
+    }
+    if (spd_val > 0.f) {
+        speed = spd_val;
+    }
+    // Свечение: 0..1 из мап-криейтора
+    lightEmit = std::clamp(light_val, 0.f, 1.f);
+}
+
 void Enemy::loadAnimations(const std::string& walkPath,
     const std::string& attackPath)
 {

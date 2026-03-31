@@ -1,3 +1,5 @@
+#pragma comment(linker, "/STACK:16777216")
+
 #include <SFML/Graphics.hpp>
 #include <iostream>
 #include <cmath>
@@ -34,12 +36,13 @@ int InterestingMAP[MAP_HEIGHT][MAP_WIDTH + 1] = {};
 static const int MAP3_H = 500;
 static const int MAP3_W = 500;
 int MAP3_TILES[MAP3_H][MAP3_W + 1] = {};
+int OriginalInterestingMAP[MAP_HEIGHT][MAP_WIDTH + 1] = {};
 
 GameMap gMap3;
 bool    gUsingMap3 = false;
 float   gMap3WorldW = 500 * 32.f;
 float   gMap3WorldH = 500 * 32.f;
-float   gMap3LightMap[500][500] = {};
+std::unique_ptr<float[]> gMap3LightMap;
 
 // Torch animation — each frame is always 32×32 (matches map creator crop)
 sf::Texture gTorchFullTex;
@@ -297,51 +300,107 @@ static string keyToString(Keyboard::Key k) {
 
 // ── Map3 lighting (mirrors map creator depth-preview) ─────────────────────────
 static float getMap3SmoothLight(int x, int y) {
-    float sum = 0.f; int cnt = 0;
-    for (int dy = -1; dy <= 1; dy++)
+    if (x < 0 || y < 0 || x >= 500 || y >= 500) return 0.f;
+
+    float sum = 0.f;
+    int cnt = 0;
+
+    for (int dy = -1; dy <= 1; dy++) {
         for (int dx = -1; dx <= 1; dx++) {
-            int nx = x + dx, ny = y + dy;
+            int nx = x + dx;
+            int ny = y + dy;
             if (nx < 0 || ny < 0 || nx >= 500 || ny >= 500) continue;
-            sum += gMap3LightMap[ny][nx]; cnt++;
+            sum += gMap3LightMap[ny * 500 + nx];
+            cnt++;
         }
+    }
+
     return cnt > 0 ? sum / cnt : 0.f;
+}
+
+// ── Dynamic (enemy-emitted) light with ray-marching — mirrors map creator ──
+static float getDynamicLightBlocked(sf::Vector2f from, sf::Vector2f to, float radius)
+{
+    sf::Vector2f dir = to - from;
+    float dist = std::sqrt(dir.x * dir.x + dir.y * dir.y);
+    if (dist <= 0.0001f) return 1.0f;
+    if (dist > radius)   return 0.f;
+
+    dir /= dist;
+
+    float light = 1.0f;
+    float step = MAP3_TILE_SIZE / 8.0f;
+
+    for (float d = 0.f; d < dist; d += step) {
+        sf::Vector2f p = from + dir * d;
+        int x = (int)(p.x / MAP3_TILE_SIZE);
+        int y = (int)(p.y / MAP3_TILE_SIZE);
+        if (x < 0 || y < 0 || x >= GMAP_W || y >= GMAP_H) break;
+        int tile = gMap3.tiles[y * GMAP_W + x];
+        if (tile >= 0) light *= 0.6f;
+        if (light <= 0.f) return 0.f;
+    }
+
+    float t = dist / radius;
+    float falloff = (1.0f - t) * (1.0f - t);
+    return light * falloff;
 }
 
 static void calculateMap3Light() {
     const float AIR_DECAY = 0.04f;
     const float BLOCK_DECAY = 0.20f;
-    for (int y = 0; y < 500; y++)
-        for (int x = 0; x < 500; x++)
-            gMap3LightMap[y][x] = 0.f;
+
+    if (!gMap3LightMap) {
+        gMap3LightMap = std::make_unique<float[]>(500 * 500);
+    }
+
+    // Очищаем карту освещения
+    memset(gMap3LightMap.get(), 0, 500 * 500 * sizeof(float));
 
     std::queue<std::pair<int, int>> q;
+
+    // Добавляем источники света
     for (auto& e : gMap3.entities) {
         if (e.light <= 0.f || e.type == ENT_ENEMY) continue;
+
         int tx = (int)(e.position.x / MAP3_TILE_SIZE);
         int ty = (int)(e.position.y / MAP3_TILE_SIZE);
+
         if (tx < 0 || ty < 0 || tx >= 500 || ty >= 500) continue;
-        gMap3LightMap[ty][tx] = e.light;
+
+        gMap3LightMap[ty * 500 + tx] = e.light;
         q.push({ tx, ty });
     }
+
+    // Распространение света
     while (!q.empty()) {
-        auto [x, y] = q.front(); q.pop();
-        float cur = gMap3LightMap[y][x];
-        int dx[] = { 1,-1,0,0 }, dy[] = { 0,0,1,-1 };
+        auto [x, y] = q.front();
+        q.pop();
+        float cur = gMap3LightMap[y * 500 + x];
+
+        const int dx[] = { 1, -1, 0, 0 };
+        const int dy[] = { 0, 0, 1, -1 };
+
         for (int d = 0; d < 4; d++) {
-            int nx = x + dx[d], ny = y + dy[d];
+            int nx = x + dx[d];
+            int ny = y + dy[d];
+
             if (nx < 0 || ny < 0 || nx >= 500 || ny >= 500) continue;
+
             int tid = gMap3.tiles[ny * GMAP_W + nx];
             float decay = (tid < 0) ? AIR_DECAY : BLOCK_DECAY;
             float nl = cur - decay;
-            if (nl > 0.f && nl > gMap3LightMap[ny][nx]) {
-                gMap3LightMap[ny][nx] = nl;
+
+            float& target = gMap3LightMap[ny * 500 + nx];
+            if (nl > 0.f && nl > target) {
+                target = nl;
                 q.push({ nx, ny });
             }
         }
     }
 }
 
-// Draws map3 background/tiles with depth-preview lighting applied
+// Draws map3 background/tiles with depth-preview lighting — identical to map creator
 static void drawMap3Lit(sf::RenderWindow& window, sf::View& cam, bool isBg) {
     sf::Vector2f tl = cam.getCenter() - cam.getSize() / 2.f;
     sf::Vector2f br = cam.getCenter() + cam.getSize() / 2.f;
@@ -349,24 +408,61 @@ static void drawMap3Lit(sf::RenderWindow& window, sf::View& cam, bool isBg) {
     int y0 = std::max(0, (int)(tl.y / MAP3_TILE_SIZE));
     int x1 = std::min(GMAP_W, (int)(br.x / MAP3_TILE_SIZE) + 2);
     int y1 = std::min(GMAP_H, (int)(br.y / MAP3_TILE_SIZE) + 2);
-    for (int y = y0; y < y1; y++)
+
+    for (int y = y0; y < y1; y++) {
         for (int x = x0; x < x1; x++) {
             int id = isBg ? gMap3.background[y * GMAP_W + x]
                 : gMap3.tiles[y * GMAP_W + x];
             if (id < 0) continue;
             auto it = gMap3.sheet.find(id);
             if (it == gMap3.sheet.end()) continue;
-            float light = getMap3SmoothLight(x, y);
-            float fl = isBg ? (light * 0.8f * 0.36f) : (light * 0.6f);
-            fl = std::max(fl, isBg ? 0.08f : 0.12f); // minimum ambient so map is visible
-            fl = std::min(fl, 1.0f);
-            int br2 = (int)(fl * (isBg ? 230.f : 255.f));
+
+            sf::Vector2f tileWorldPos = {
+                x * MAP3_TILE_SIZE + MAP3_TILE_SIZE * 0.5f,
+                y * MAP3_TILE_SIZE + MAP3_TILE_SIZE * 0.5f
+            };
+
+            float staticLight = getMap3SmoothLight(x, y);
+
+            // Dynamic light from enemy entities (e.g. glowing slimes)
+            float dynamicLight = 0.f;
+            for (auto& e : gMap3.entities) {
+                if (e.light <= 0.f || e.type != ENT_ENEMY) continue;
+                sf::Vector2f entityCenter = {
+                    e.position.x + MAP3_TILE_SIZE * 0.5f,
+                    e.position.y + MAP3_TILE_SIZE * 0.5f
+                };
+                if (std::abs(entityCenter.x - tileWorldPos.x) > e.light * 500.f) continue;
+                if (std::abs(entityCenter.y - tileWorldPos.y) > e.light * 500.f) continue;
+                float radius = isBg ? e.light * 300.f : e.light * 450.f;
+                dynamicLight = std::max(dynamicLight,
+                    getDynamicLightBlocked(entityCenter, tileWorldPos, radius));
+            }
+
+            float finalLight, br2f;
+            if (isBg) {
+                float dynamicSmooth = (dynamicLight + getMap3SmoothLight(x, y)) * 0.5f;
+                finalLight = staticLight * 0.8f + dynamicSmooth;
+                finalLight = std::min(finalLight, 1.0f);
+                float bgLight = finalLight * 0.36f;
+                br2f = bgLight * 230.f;
+            }
+            else {
+                finalLight = staticLight * 0.6f + dynamicLight * 1.0f;
+                finalLight = std::min(finalLight, 1.0f);
+                br2f = finalLight * 255.f;
+            }
+
+            int br2 = (int)br2f;
             it->second.setColor(sf::Color(br2, br2, br2));
             it->second.setPosition({ x * MAP3_TILE_SIZE, y * MAP3_TILE_SIZE });
             window.draw(it->second);
         }
-    // reset color so sprites aren't permanently tinted
-    for (auto& [id, spr] : gMap3.sheet) spr.setColor(sf::Color::White);
+    }
+
+    // Reset colour so sprites aren't permanently tinted
+    for (auto& [id, spr] : gMap3.sheet)
+        spr.setColor(sf::Color::White);
 }
 
 // Draw map3 entities (coins, torches, finish) with lighting
@@ -395,10 +491,12 @@ static void drawMap3EntitiesLit(sf::RenderWindow& window,
         int tx = (int)(ent.position.x / MAP3_TILE_SIZE);
         int ty = (int)(ent.position.y / MAP3_TILE_SIZE);
         float light = getMap3SmoothLight(tx, ty);
-        float entLight = std::max(light, ent.light);
-        entLight = std::max(entLight, 0.15f); // minimum ambient for entities
-        entLight = std::min(entLight, 1.f);
-        sf::Color col((uint8_t)(255 * entLight), (uint8_t)(255 * entLight), (uint8_t)(255 * entLight));
+        float dynamicLight = ent.light; // entity's own emitted light value (0..1)
+        float finalLight = std::max(light, dynamicLight);
+        finalLight = std::min(finalLight, 1.f);
+        sf::Color col((uint8_t)(255 * finalLight),
+            (uint8_t)(255 * finalLight),
+            (uint8_t)(255 * finalLight));
 
         if (isTorch && hasTorch) {
             sf::Sprite torchSpr(gTorchFullTex,
@@ -652,7 +750,8 @@ void DrawMainMenu(RenderWindow& window, Font& font, Vector2i mousePos) {
     vector<Btn> btns = {
         { "LEVELS",   col1X, startY },
         { "SHOP",     col1X, startY + (btnH + gap) },
-        { "LOGIN",    col1X, startY + (btnH + gap) * 2 },
+        { ApiClient::instance().player.loggedIn ? "ACCOUNT" : "LOGIN",
+            col1X, startY + (btnH + gap) * 2 },
         { "CREATORS", col2X, startY },
         { "SETTINGS", col2X, startY + (btnH + gap) },
         { "QUESTS",   col2X, startY + (btnH + gap) * 2 },
@@ -1210,8 +1309,7 @@ void drawEndInfo(RenderWindow& window, Font& font, float finalTime, int coins, i
 }
 
 void initializeLevel(int levelNum, std::vector<std::tuple<int, int, int>>& mobTemplate,
-    std::vector<Enemy>& enemies, Texture& tx_Slime, Texture& tx_SlimeMan,
-    static int OriginalInterestingMAP[MAP_HEIGHT][MAP_WIDTH + 1], Player& player) {
+    std::vector<Enemy>& enemies, Texture& tx_Slime, Texture& tx_SlimeMan, Player& player) {
     loadLevel(levelNum, mobTemplate);
     analyzeMaps();
 
@@ -1335,13 +1433,55 @@ void DrawLoginMenu(RenderWindow& window, Font& font, Vector2i mousePos,
 {
     window.setView(FIXED_UI_VIEW);
 
-    Text title(font, "LOGIN", 52);
+    if (ApiClient::instance().player.loggedIn) {
+        Text title(font, "ACCOUNT", 52);
+        title.setFillColor(Color(230, 220, 185));
+        title.setOutlineColor(Color(50, 42, 28, 220));
+        title.setOutlineThickness(3.f);
+        FloatRect tb = title.getLocalBounds();
+        title.setPosition({ (1200.f - tb.size.x) / 2.f, 95.f });
+        window.draw(title);
+
+        auto& p = ApiClient::instance().player;
+
+        std::vector<std::pair<std::string, std::string>> info = {
+            { "Username:", p.username },
+            { "Coins:",    std::to_string(p.coins) },
+            { "Skin:",     p.equippedPlayerSkin },
+        };
+
+        float y = 220.f;
+        for (auto& [label, value] : info) {
+            Text lbl(font, label, 22);
+            lbl.setFillColor(Color(180, 170, 140));
+            lbl.setPosition({ 380.f, y });
+            window.draw(lbl);
+
+            Text val(font, value, 22);
+            val.setFillColor(Color(240, 228, 190));
+            val.setPosition({ 560.f, y });
+            window.draw(val);
+
+            y += 50.f;
+        }
+
+        FloatRect backBtn({ 450.f, 490.f }, { 300.f, 48.f });
+        DrawMenuButton(window, backBtn, "BACK", font, backBtn.contains(Vector2f(mousePos)));
+        return;
+    }
+    Text title(font, "LOGIN / REGISTER", 42);
     title.setFillColor(Color(230, 220, 185));
     title.setOutlineColor(Color(50, 42, 28, 220));
     title.setOutlineThickness(3.f);
     FloatRect tb = title.getLocalBounds();
     title.setPosition({ (1200.f - tb.size.x) / 2.f, 95.f });
     window.draw(title);
+
+    Text hint(font, "Email and password are shared for Login & Register", 14);
+    hint.setFillColor(Color(160, 150, 120));
+    FloatRect hb = hint.getLocalBounds();
+    hint.setPosition({ (1200.f - hb.size.x) / 2.f, 170.f });
+    window.draw(hint);
 
     const float boxW = 400.f, boxH = 46.f, boxX = 400.f;
     DrawInputBox(window, font, boxX, 210.f, boxW, boxH, email, "Email...", emailActive, false);
@@ -1520,11 +1660,39 @@ void DrawShopMenu(RenderWindow& window, Font& font, Vector2i mousePos,
     DrawMenuButton(window, backBtn, "BACK", font, backBtn.contains(Vector2f(mousePos)));
 }
 
+static void drawEnemiesLit(sf::RenderWindow& window,
+    std::vector<Enemy>& enemies, bool debugMode = false)
+{
+    for (auto& e : enemies) {
+        e.draw(window, debugMode);
+
+        if (!gUsingMap3) continue; // levels 1/2: no lighting
+
+        // Map creator formula: finalLight = max(smoothLight, entity.lightEmit)
+        sf::Vector2f center = e.getCenter();
+        int tx = (int)(center.x / MAP3_TILE_SIZE);
+        int ty = (int)(center.y / MAP3_TILE_SIZE);
+        float light = getMap3SmoothLight(tx, ty);
+        float finalLight = std::max(light, e.getLightEmit());
+        finalLight = std::min(finalLight, 1.f);
+
+        // Apply darkness overlay matching the map creator colour formula
+        float darkness = 1.f - finalLight;
+        if (darkness > 0.01f) {
+            sf::FloatRect bounds = e.getBounds();
+            sf::RectangleShape shadow(bounds.size);
+            shadow.setPosition(bounds.position);
+            shadow.setFillColor(sf::Color(0, 0, 0, (uint8_t)(darkness * 255.f)));
+            window.draw(shadow);
+        }
+    }
+}
+
 int main()
 {
     SetProcessDPIAware();
 
-    static int OriginalInterestingMAP[MAP_HEIGHT][MAP_WIDTH + 1] = {};
+    // static int OriginalInterestingMAP[MAP_HEIGHT][MAP_WIDTH + 1] = {};
 
     std::vector<std::tuple<int, int, int>> mobTemplate;
 
@@ -1757,7 +1925,7 @@ int main()
                             for (auto& e : enemies) e.loadAnimations("Sprites/slime_walk.png", "Sprites/slime_attack.png");
                         }
                         else {
-                            initializeLevel(currentLevel, mobTemplate, enemies, tx_Slime, tx_SlimeMan, OriginalInterestingMAP, player);
+                            initializeLevel(currentLevel, mobTemplate, enemies, tx_Slime, tx_SlimeMan, player);
                         }
                         player.reset();
                         player.setLimitedDashMode(limitedDashMode);
@@ -1832,7 +2000,7 @@ int main()
                         currentLevel = 1;
                         gUsingMap3 = false;
                         gameState = PLAYING;
-                        initializeLevel(currentLevel, mobTemplate, enemies, tx_Slime, tx_SlimeMan, OriginalInterestingMAP, player);
+                        initializeLevel(currentLevel, mobTemplate, enemies, tx_Slime, tx_SlimeMan, player);
                         player.reset();
                         player.setLimitedDashMode(limitedDashMode);
                         time = 0.f; levelCompleted = false;
@@ -1847,7 +2015,7 @@ int main()
                         currentLevel = 2;
                         gUsingMap3 = false;
                         gameState = PLAYING;
-                        initializeLevel(currentLevel, mobTemplate, enemies, tx_Slime, tx_SlimeMan, OriginalInterestingMAP, player);
+                        initializeLevel(currentLevel, mobTemplate, enemies, tx_Slime, tx_SlimeMan, player);
                         player.reset();
                         player.setLimitedDashMode(limitedDashMode);
                         time = 0.f; levelCompleted = false;
@@ -2075,7 +2243,7 @@ int main()
                                 }
                                 else {
                                     gUsingMap3 = false;
-                                    initializeLevel(currentLevel, mobTemplate, enemies, tx_Slime, tx_SlimeMan, OriginalInterestingMAP, player);
+                                    initializeLevel(currentLevel, mobTemplate, enemies, tx_Slime, tx_SlimeMan, player);
                                     player.reset(); player.setLimitedDashMode(limitedDashMode);
                                     StartdoorPosition = currentLevel == 1 ? Vector2f(3600.f, 0.f) : Vector2f(4400.f, 0.f);
                                     EnddoorPosition = currentLevel == 1 ? Vector2f(3651.f, 0.f) : Vector2f(4444.f, 0.f);
@@ -2147,14 +2315,30 @@ int main()
                         loginEmailActive = false; loginPasswordActive = true;
                     }
                     else if (loginBtn.contains(mouse)) {
-                        loginError = "";
-                        ApiClient::instance().loginAsync(loginEmail, loginPassword);
+                        if (loginEmail.empty() || loginPassword.empty()) {
+                            loginError = "Please enter email and password.";
+                        }
+                        else {
+                            loginError = "";
+                            ApiClient::instance().loginAsync(loginEmail, loginPassword);
+                        }
                     }
                     else if (regBtn.contains(mouse)) {
-                        std::string username = loginEmail.substr(0, loginEmail.find('@'));
-                        if (username.empty()) username = "player";
-                        loginError = "";
-                        ApiClient::instance().registerAsync(username, loginEmail, loginPassword);
+                        if (loginEmail.empty() || loginPassword.empty()) {
+                            loginError = "Please enter email and password to register.";
+                        }
+                        else if (loginEmail.find('@') == std::string::npos) {
+                            loginError = "Please enter a valid email address.";
+                        }
+                        else if (loginPassword.size() < 4) {
+                            loginError = "Password must be at least 4 characters.";
+                        }
+                        else {
+                            std::string username = loginEmail.substr(0, loginEmail.find('@'));
+                            if (username.empty()) username = "player";
+                            loginError = "";
+                            ApiClient::instance().registerAsync(username, loginEmail, loginPassword);
+                        }
                     }
                     else if (backBtn.contains(mouse)) {
                         if (ApiClient::instance().status != ApiStatus::Loading)
@@ -2501,7 +2685,7 @@ int main()
                 drawInteresting(window, spriteSheet);
             }
 
-            for (auto& e : enemies) e.draw(window, debugMode);
+            drawEnemiesLit(window, enemies, debugMode);
 
             // Draw multiplayer ghosts (other players)
             {
@@ -2552,7 +2736,7 @@ int main()
                 drawMob(window, spriteSheet);
                 drawInteresting(window, spriteSheet);
             }
-            for (auto& e : enemies) e.draw(window, debugMode);
+            drawEnemiesLit(window, enemies, debugMode);
             player.draw(window, view1, font, debugMode, true);
             DrawPauseMenu(window, font, mousePos);
         }
@@ -2578,7 +2762,7 @@ int main()
                 drawInteresting(window, spriteSheet);
             }
 
-            for (auto& e : enemies) e.draw(window);
+            drawEnemiesLit(window, enemies, false);
 
             player.draw(window, view1, font);
             if (levelCompleted) {

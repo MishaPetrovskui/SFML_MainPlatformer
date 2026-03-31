@@ -2,6 +2,7 @@
 #include "Enemy.h"
 #include "Gamemap.h"
 #include "ApiClient.h"
+#include "MultiplayerClient.h"
 #include <algorithm>
 
 using namespace sf;
@@ -583,8 +584,14 @@ void Player::update(float dt, int map[][501], int mapWidth, int mapHeight, float
 
         for (auto& e : enemies) {
             if (!e.isAlive()) continue;
-            if (rectsIntersect(attackRect, e.getBounds()))
+            if (rectsIntersect(attackRect, e.getBounds())) {
+                bool wasAlive = e.isAlive();
                 e.takeDamage(attackDamage);
+                if (wasAlive && !e.isAlive()) {
+                    int idx = (int)(&e - &enemies[0]);
+                    MultiplayerClient::instance().sendEnemyKill(idx, 0); // level 0 = current
+                }
+            }
         }
     }
 
@@ -1155,9 +1162,16 @@ void Player::update(float dt, const GameMap& gmap, float tileSize,
         else if (!ar && al && !au && ad) atk = { { cx - sR,      cy           }, { sR,        hh + vR   } };
         else if (ar)                       atk = { { cx,           cy - hh      }, { sR,        pb.size.y } };
         else                               atk = { { cx - sR,      cy - hh      }, { sR,        pb.size.y } };
-        for (auto& e : enemies)
-            if (e.isAlive() && rectsIntersect(atk, e.getBounds()))
+        for (auto& e : enemies) {
+            if (e.isAlive() && rectsIntersect(atk, e.getBounds())) {
+                bool wasAlive = e.isAlive();
                 e.takeDamage(attackDamage);
+                if (wasAlive && !e.isAlive()) {
+                    int idx = (int)(&e - &enemies[0]);
+                    MultiplayerClient::instance().sendEnemyKill(idx, 0);
+                }
+            }
+        }
     }
 
     float pw = shape.getSize().x, ph = shape.getSize().y;

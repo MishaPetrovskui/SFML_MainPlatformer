@@ -1,17 +1,9 @@
 #pragma once
-// MultiplayerClient.h  — WebSocket-based multiplayer for PixelRun
-// Uses WinHTTP WebSocket API (already linked via winhttp.lib in ApiClient.h)
-//
-// Usage in main.cpp:
-//   #include "MultiplayerClient.h"
-//   // After login:
-//   MultiplayerClient::instance().connect("localhost", 5001, token, username);
-//   // In game loop (PLAYING state):
-//   MultiplayerClient::instance().sendPosition(x, y, level, facingRight, animName);
-//   auto others = MultiplayerClient::instance().getOtherPlayers();
-//   // Draw others as ghost sprites
-//   // On exit / back to menu:
-//   MultiplayerClient::instance().disconnect();
+// MultiplayerClient.h  —  WebSocket multiplayer for PixelRun
+// Key additions vs original:
+//   • sendPosition() gains a "phase" param ("playing"|"menu"|"paused")
+//   • consumeLogout() — returns true once when server sent {"type":"logout"}
+//   • GhostRenderer respects gamePhase (fades paused players)
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -32,7 +24,7 @@
 #include <cstdint>
 #include <SFML/Graphics.hpp>
 
-// ── Other player info received from server ───────────────────────────────────
+// ── Data received from server ─────────────────────────────────────────────────
 struct MpOtherPlayer {
     int         id = 0;
     std::string username;
@@ -40,54 +32,50 @@ struct MpOtherPlayer {
     float       y = 0.f;
     bool        facingRight = true;
     std::string anim = "idle";
+    std::string gamePhase = "playing"; // "playing"|"paused"
 };
 
-// ── Minimal JSON helpers (no external lib) ───────────────────────────────────
+// ── Minimal JSON helpers ──────────────────────────────────────────────────────
 namespace MpJson {
-    // Extract string value for key, e.g. "username":"Bob" -> "Bob"
     static std::string str(const std::string& json, const std::string& key) {
-        auto search = "\"" + key + "\":\"";
-        auto pos = json.find(search);
+        std::string search = "\"" + key + "\":\"";
+        size_t pos = json.find(search);
         if (pos == std::string::npos) return "";
         pos += search.size();
-        auto end = json.find('"', pos);
+        size_t end = json.find('"', pos);
         return end == std::string::npos ? "" : json.substr(pos, end - pos);
     }
-    // Extract numeric value (int or float stored as string)
     static float num(const std::string& json, const std::string& key) {
-        auto search = "\"" + key + "\":";
-        auto pos = json.find(search);
+        std::string search = "\"" + key + "\":";
+        size_t pos = json.find(search);
         if (pos == std::string::npos) return 0.f;
         pos += search.size();
-        while (pos < json.size() && (json[pos] == ' ')) pos++;
+        while (pos < json.size() && json[pos] == ' ') ++pos;
         try { return std::stof(json.substr(pos)); }
         catch (...) { return 0.f; }
     }
     static bool boolean(const std::string& json, const std::string& key) {
-        auto search = "\"" + key + "\":";
-        auto pos = json.find(search);
+        std::string search = "\"" + key + "\":";
+        size_t pos = json.find(search);
         if (pos == std::string::npos) return false;
         pos += search.size();
         return json.find("true", pos) == pos;
     }
-    // Parse array of player objects from {"players":[{...},{...}]}
     static std::vector<MpOtherPlayer> parsePlayers(const std::string& json) {
         std::vector<MpOtherPlayer> result;
-        auto arrStart = json.find("[");
+        size_t arrStart = json.find('[');
         if (arrStart == std::string::npos) return result;
         size_t pos = arrStart;
         while (true) {
-            auto objStart = json.find('{', pos);
+            size_t objStart = json.find('{', pos);
             if (objStart == std::string::npos) break;
-            // Find matching closing brace
-            int depth = 0;
-            size_t objEnd = objStart;
+            int depth = 0; size_t objEnd = objStart;
             for (; objEnd < json.size(); ++objEnd) {
-                if (json[objEnd] == '{') depth++;
-                else if (json[objEnd] == '}') { depth--; if (depth == 0) break; }
+                if (json[objEnd] == '{') ++depth;
+                else if (json[objEnd] == '}') { --depth; if (!depth) break; }
             }
             if (objEnd >= json.size()) break;
-            auto obj = json.substr(objStart, objEnd - objStart + 1);
+            std::string obj = json.substr(objStart, objEnd - objStart + 1);
             MpOtherPlayer p;
             p.id = static_cast<int>(num(obj, "id"));
             p.username = str(obj, "username");
@@ -95,6 +83,8 @@ namespace MpJson {
             p.y = num(obj, "y");
             p.facingRight = boolean(obj, "facingRight");
             p.anim = str(obj, "anim");
+            p.gamePhase = str(obj, "gamePhase");
+            if (p.gamePhase.empty()) p.gamePhase = "playing";
             if (p.id > 0) result.push_back(p);
             pos = objEnd + 1;
         }
@@ -102,7 +92,7 @@ namespace MpJson {
     }
 }
 
-// ── MultiplayerClient (singleton) ────────────────────────────────────────────
+// ── MultiplayerClient singleton ───────────────────────────────────────────────
 class MultiplayerClient {
 public:
     static MultiplayerClient& instance() {
@@ -110,12 +100,14 @@ public:
         return inst;
     }
 
-    // Call after successful login
+    // ── Connection ────────────────────────────────────────────────────────────
+
     void connect(const std::string& host, int port,
         const std::string& token, const std::string& username)
     {
-        disconnect(); // close any existing connection
+        disconnect();
         _username = username;
+        _logoutReceived = false;
         _running = true;
         _thread = std::thread([this, host, port, token]() {
             runLoop(host, port, token);
@@ -124,37 +116,53 @@ public:
 
     void disconnect() {
         _running = false;
-        // Signal the WS to close so the receive loop unblocks
         if (_wsHandle) {
-            WinHttpWebSocketClose(_wsHandle, WINHTTP_WEB_SOCKET_SUCCESS_CLOSE_STATUS,
-                nullptr, 0);
+            WinHttpWebSocketClose(_wsHandle, WINHTTP_WEB_SOCKET_SUCCESS_CLOSE_STATUS, nullptr, 0);
             WinHttpCloseHandle(_wsHandle);
             _wsHandle = nullptr;
         }
         if (_thread.joinable()) _thread.join();
         std::lock_guard<std::mutex> lk(_mtx);
         _others.clear();
+        _pendingKills.clear();
     }
 
-    // Send our position to server (~10 times per second is fine)
-    void sendPosition(float x, float y, int level, bool facingRight, const std::string& anim) {
+    // ── Send helpers ──────────────────────────────────────────────────────────
+
+    /// phase: "playing" | "menu" | "paused"
+    void sendPosition(float x, float y, int level, bool facingRight,
+        const std::string& anim,
+        const std::string& phase = "playing")
+    {
         if (!_wsHandle || !_running) return;
-        // Build minimal JSON
         std::ostringstream ss;
         ss << "{\"x\":" << x
             << ",\"y\":" << y
             << ",\"lv\":" << level
             << ",\"fr\":" << (facingRight ? "true" : "false")
             << ",\"anim\":\"" << anim << "\""
-            << ",\"name\":\"" << _username << "\"}";
-        auto msg = ss.str();
-        // Non-blocking send (fire and forget; errors handled in recv loop)
-        std::lock_guard<std::mutex> lk(_sendMtx);
-        WinHttpWebSocketSend(_wsHandle, WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE,
-            (PVOID)msg.c_str(), (DWORD)msg.size());
+            << ",\"phase\":\"" << phase << "\""
+            << ",\"name\":\"" << _username << "\""
+            << ",\"src\":\"game\"}";
+        _sendRaw(ss.str());
     }
 
-    // Get snapshot of other players (thread-safe)
+    void sendEnemyKill(int enemyIndex, int level) {
+        if (!_wsHandle || !_running) return;
+        std::ostringstream ss;
+        ss << "{\"type\":\"enemy_kill\",\"enemyIndex\":" << enemyIndex
+            << ",\"lv\":" << level
+            << ",\"src\":\"game\"}";
+        _sendRaw(ss.str());
+    }
+
+    // ── Query ─────────────────────────────────────────────────────────────────
+
+    std::vector<int> getAndClearEnemyKills() {
+        std::lock_guard<std::mutex> lk(_mtx);
+        return std::move(_pendingKills);
+    }
+
     std::vector<MpOtherPlayer> getOtherPlayers() {
         std::lock_guard<std::mutex> lk(_mtx);
         return _others;
@@ -162,17 +170,32 @@ public:
 
     bool isConnected() const { return _running && _wsHandle != nullptr; }
 
+    /// Returns true exactly once when the server forwarded a logout event.
+    /// Call this every frame; when it returns true, clear the local session.
+    bool consumeLogout() {
+        if (!_logoutReceived.load()) return false;
+        _logoutReceived = false;
+        return true;
+    }
+
 private:
-    HINTERNET        _wsHandle = nullptr;
-    std::atomic_bool _running{ false };
-    std::thread      _thread;
-    std::mutex       _mtx;      // protects _others
-    std::mutex       _sendMtx;  // protects send calls
-    std::string      _username;
+    HINTERNET         _wsHandle = nullptr;
+    std::atomic_bool  _running{ false };
+    std::atomic_bool  _logoutReceived{ false };
+    std::thread       _thread;
+    std::mutex        _mtx;
+    std::mutex        _sendMtx;
+    std::string       _username;
     std::vector<MpOtherPlayer> _others;
+    std::vector<int>           _pendingKills;
+
+    void _sendRaw(const std::string& msg) {
+        std::lock_guard<std::mutex> lk(_sendMtx);
+        WinHttpWebSocketSend(_wsHandle, WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE,
+            (PVOID)msg.c_str(), (DWORD)msg.size());
+    }
 
     void runLoop(const std::string& host, int port, const std::string& token) {
-        // Build upgrade request
         HINTERNET hSession = WinHttpOpen(L"PixelRun/1.0 WS",
             WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
             WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
@@ -182,10 +205,8 @@ private:
         HINTERNET hConnect = WinHttpConnect(hSession, wHost.c_str(), (INTERNET_PORT)port, 0);
         if (!hConnect) { WinHttpCloseHandle(hSession); _running = false; return; }
 
-        // Path with token query param
-        std::string path = "/ws/game?token=" + token;
+        std::string  path = "/ws/game?token=" + token;
         std::wstring wPath(path.begin(), path.end());
-
         HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"GET", wPath.c_str(),
             nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES,
             WINHTTP_FLAG_ESCAPE_DISABLE);
@@ -194,28 +215,26 @@ private:
             _running = false; return;
         }
 
-        // Mark as WebSocket upgrade
-        BOOL bSet = WinHttpSetOption(hRequest, WINHTTP_OPTION_UPGRADE_TO_WEB_SOCKET, nullptr, 0);
-        if (!bSet) { WinHttpCloseHandle(hRequest); WinHttpCloseHandle(hConnect); WinHttpCloseHandle(hSession); _running = false; return; }
+        WinHttpSetOption(hRequest, WINHTTP_OPTION_UPGRADE_TO_WEB_SOCKET, nullptr, 0);
 
-        if (!WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, nullptr, 0, 0, 0) ||
-            !WinHttpReceiveResponse(hRequest, nullptr)) {
+        if (!WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, nullptr, 0, 0, 0)
+            || !WinHttpReceiveResponse(hRequest, nullptr))
+        {
             WinHttpCloseHandle(hRequest); WinHttpCloseHandle(hConnect); WinHttpCloseHandle(hSession);
             _running = false; return;
         }
 
         HINTERNET hWs = WinHttpWebSocketCompleteUpgrade(hRequest, 0);
-        WinHttpCloseHandle(hRequest); // no longer needed after upgrade
+        WinHttpCloseHandle(hRequest);
         if (!hWs) {
             WinHttpCloseHandle(hConnect); WinHttpCloseHandle(hSession);
             _running = false; return;
         }
         _wsHandle = hWs;
 
-        // Receive loop
-        std::string accumulator;
-        accumulator.reserve(4096);
+        std::string      accumulator;
         std::vector<BYTE> buf(4096);
+        accumulator.reserve(4096);
 
         while (_running) {
             DWORD bytesRead = 0;
@@ -226,15 +245,25 @@ private:
 
             accumulator.append(reinterpret_cast<char*>(buf.data()), bytesRead);
 
-            bool isFinal = (bufType == WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE ||
-                bufType == WINHTTP_WEB_SOCKET_CLOSE_BUFFER_TYPE);
+            bool isFinal = (bufType == WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE
+                || bufType == WINHTTP_WEB_SOCKET_CLOSE_BUFFER_TYPE);
             if (!isFinal) continue;
-
             if (bufType == WINHTTP_WEB_SOCKET_CLOSE_BUFFER_TYPE) break;
 
-            // Parse and update other players
-            auto players = MpJson::parsePlayers(accumulator);
-            {
+            std::string msgType = MpJson::str(accumulator, "type");
+
+            if (msgType == "logout") {
+                // Server forwarded a logout from the web client
+                _logoutReceived = true;
+            }
+            else if (msgType == "enemy_kill") {
+                int idx = static_cast<int>(MpJson::num(accumulator, "enemyIndex"));
+                std::lock_guard<std::mutex> lk(_mtx);
+                _pendingKills.push_back(idx);
+            }
+            else {
+                // "players" packet — position update
+                auto players = MpJson::parsePlayers(accumulator);
                 std::lock_guard<std::mutex> lk(_mtx);
                 _others = std::move(players);
             }
@@ -250,10 +279,9 @@ private:
     }
 };
 
-// ── GhostRenderer: draws other players using the real player sprite ──────────
+// ── GhostRenderer ─────────────────────────────────────────────────────────────
 class GhostRenderer {
 public:
-    // walkTexPath = "Sprites/player_walk.png" (same sheet as local player)
     void init(sf::Font& font, const std::string& walkTexPath = "") {
         _font = &font;
         if (!walkTexPath.empty()) {
@@ -284,31 +312,29 @@ public:
     {
         window.setView(gameView);
         for (const auto& p : players) {
-            // ── Sprite — exactly mirrors Player::draw() math ─────────────────
+            bool isPaused = (p.gamePhase == "paused");
+            uint8_t alpha = isPaused ? 130 : 210;
+
             if (_hasSprite) {
                 sf::Sprite spr(_walkTex);
                 spr.setTextureRect(sf::IntRect({ _animFrame * FRAME_W, 0 }, { FRAME_W, FRAME_H }));
-                // Player::draw uses origin (44.5, 96) — feet-left of sprite
                 spr.setOrigin({ 44.5f, 96.f });
-                // Player::draw scale = 0.9, flip on facing
                 spr.setScale(p.facingRight
                     ? sf::Vector2f{ SSCALE, SSCALE }
                 : sf::Vector2f{ -SSCALE, SSCALE });
-                // Player::draw anchor: center-x of hitbox, bottom-3 of hitbox
-                //   hitbox is 30×40 → center x = p.x+15, bottom-3 = p.y+37
                 spr.setPosition({ p.x + 15.f, p.y + 37.f });
-                spr.setColor(sf::Color(170, 215, 255, 210)); // subtle blue tint
+                spr.setColor(sf::Color(170, 215, 255, alpha));
                 window.draw(spr);
             }
             else {
+                _body.setFillColor(sf::Color(80, 160, 255, (uint8_t)(alpha / 2)));
                 _body.setPosition({ p.x, p.y });
                 window.draw(_body);
             }
 
-            // ── Username badge ───────────────────────────────────────────────
             if (_font && !p.username.empty()) {
                 sf::Text label(*_font, p.username, 11);
-                label.setFillColor(sf::Color(215, 238, 255, 235));
+                label.setFillColor(sf::Color(215, 238, 255, alpha));
                 label.setOutlineColor(sf::Color(0, 0, 0, 210));
                 label.setOutlineThickness(1.5f);
                 sf::FloatRect lb = label.getLocalBounds();
@@ -320,6 +346,14 @@ public:
                 window.draw(_badge);
                 label.setPosition({ lx, ly });
                 window.draw(label);
+
+                // Small "||" pause indicator above the badge
+                if (isPaused) {
+                    sf::Text pauseMark(*_font, "||", 9);
+                    pauseMark.setFillColor(sf::Color(255, 220, 100, 200));
+                    pauseMark.setPosition({ lx + lb.size.x * 0.5f - 4.f, ly - 14.f });
+                    window.draw(pauseMark);
+                }
             }
         }
     }

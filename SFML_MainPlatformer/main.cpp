@@ -62,6 +62,8 @@ const float SAW_FRAME_TIME = 0.08f;
 // Multiplayer ghost renderer and send timer
 GhostRenderer ghostRenderer;
 float mpSendTimer = 0.f;
+float apiRefreshTimer = 0.f; // periodic server coin/profile sync
+float mpPhaseTimer = 0.f;
 
 float TileSize = 40.f;
 const float MAP3_TILE_SIZE = 32.f;
@@ -696,84 +698,116 @@ void DrawLevelsMenu(RenderWindow& window, Font& font, Vector2i mousePos) {
 void DrawLobbyMenu(RenderWindow& window, Font& font, Vector2i mousePos, bool connected, int connectedLevel) {
     window.setView(FIXED_UI_VIEW);
 
-    Text title(font, "MULTIPLAYER", 48);
+    Text title(font, "MULTIPLAYER LOBBIES", 40);
     title.setFillColor(Color::White);
     FloatRect tb = title.getLocalBounds();
-    title.setPosition({ (1200.f - tb.size.x) / 2.f, 80.f });
+    title.setPosition({ (1200.f - tb.size.x) / 2.f, 60.f });
     window.draw(title);
 
-    // Connection status
-    std::string statusStr = connected
-        ? ("CONNECTED - Level " + std::to_string(connectedLevel))
-        : "Connect via web app or login to play with others";
-    Text statusTxt(font, statusStr, 18);
-    statusTxt.setFillColor(connected ? Color(100, 255, 100) : Color(180, 180, 200));
+    // Connection status bar
+    bool ws = MultiplayerClient::instance().isConnected();
+    const char* LEVEL_NAMES_ARR[3] = { "Forest Run", "Dark Caves", "Sky Fortress" };
+    const Color LEVEL_COLORS[3] = { Color(60,150,60), Color(80,80,180), Color(160,100,40) };
+    std::string statusStr = ws
+        ? ("CONNECTED  \xE2\x80\x94  Level " + std::to_string(connectedLevel) + "  \xE2\x80\x94  " + LEVEL_NAMES_ARR[connectedLevel - 1])
+        : "LOGIN to join a lobby and play with others";
+    Text statusTxt(font, statusStr, 16);
+    statusTxt.setFillColor(ws ? Color(100, 255, 100) : Color(160, 160, 200));
     FloatRect sb = statusTxt.getLocalBounds();
-    statusTxt.setPosition({ (1200.f - sb.size.x) / 2.f, 145.f });
+    statusTxt.setPosition({ (1200.f - sb.size.x) / 2.f, 118.f });
     window.draw(statusTxt);
 
-    // Lobby cards for each level
-    const char* levelNames[3] = { "Forest Run", "Dark Caves", "Sky Fortress" };
-    const Color levelColors[3] = { Color(60,150,60), Color(80,80,160), Color(160,100,40) };
-    for (int i = 0; i < 3; i++) {
-        float cardX = 150.f + i * 310.f;
-        float cardY = 210.f;
-        float cardW = 270.f, cardH = 200.f;
+    // Grab cached rooms (filled by ApiClient::getLobbyRoomsAsync)
+    auto& rooms = ApiClient::instance().cachedRooms;
 
-        bool isActive = connected && (connectedLevel == i + 1);
+    for (int i = 0; i < 3; i++) {
+        float cardX = 90.f + i * 345.f;
+        float cardY = 170.f;
+        float cardW = 310.f, cardH = 270.f;
+
+        bool isActive = ws && (connectedLevel == i + 1);
+
+        // Find server room data for this level
+        int onlineCount = 0;
+        std::vector<std::string> onlinePlayers;
+        for (auto& r : rooms) {
+            if (r.level == i + 1) { onlineCount = r.online; onlinePlayers = r.playerNames; break; }
+        }
+
         RectangleShape card({ cardW, cardH });
         card.setPosition({ cardX, cardY });
-        card.setFillColor(isActive ? Color(20, 60, 20, 200) : Color(20, 20, 40, 200));
-        card.setOutlineColor(isActive ? Color(100, 255, 100) : Color(80, 80, 120));
+        card.setFillColor(isActive ? Color(20, 50, 20, 210) : Color(15, 15, 30, 210));
+        card.setOutlineColor(isActive ? Color(100, 255, 100) : Color(60, 60, 100));
         card.setOutlineThickness(isActive ? 2.f : 1.f);
         window.draw(card);
 
-        if (isActive) {
-            RectangleShape topBar({ cardW, 3.f });
-            topBar.setPosition({ cardX, cardY });
-            topBar.setFillColor(Color(100, 255, 100));
-            window.draw(topBar);
-        }
+        // Top accent bar
+        RectangleShape topBar({ cardW, 3.f });
+        topBar.setPosition({ cardX, cardY });
+        topBar.setFillColor(isActive ? Color(100, 255, 100) : LEVEL_COLORS[i]);
+        window.draw(topBar);
 
-        Text lvlNum(font, "LEVEL " + std::to_string(i + 1), 14);
-        lvlNum.setFillColor(Color(160, 160, 200));
+        // Level number
+        Text lvlNum(font, "LEVEL " + std::to_string(i + 1), 13);
+        lvlNum.setFillColor(Color(150, 150, 200));
         FloatRect nb = lvlNum.getLocalBounds();
-        lvlNum.setPosition({ cardX + (cardW - nb.size.x) / 2.f, cardY + 15.f });
+        lvlNum.setPosition({ cardX + (cardW - nb.size.x) / 2.f, cardY + 14.f });
         window.draw(lvlNum);
 
-        Text lvlName(font, levelNames[i], 22);
+        // Level name
+        Text lvlName(font, LEVEL_NAMES_ARR[i], 24);
         lvlName.setFillColor(Color::White);
         FloatRect lnb = lvlName.getLocalBounds();
-        lvlName.setPosition({ cardX + (cardW - lnb.size.x) / 2.f, cardY + 45.f });
+        lvlName.setPosition({ cardX + (cardW - lnb.size.x) / 2.f, cardY + 36.f });
         window.draw(lvlName);
 
+        // Online count badge
+        std::string onlineStr = onlineCount > 0
+            ? (std::to_string(onlineCount) + " ONLINE")
+            : "EMPTY";
+        Text onlineTxt(font, onlineStr, 13);
+        onlineTxt.setFillColor(onlineCount > 0 ? Color(100, 255, 100) : Color(120, 120, 160));
+        FloatRect ob = onlineTxt.getLocalBounds();
+        onlineTxt.setPosition({ cardX + (cardW - ob.size.x) / 2.f, cardY + 76.f });
+        window.draw(onlineTxt);
+
+        // Player name list (up to 4)
+        float nameY = cardY + 100.f;
+        int shown = 0;
+        for (auto& pname : onlinePlayers) {
+            if (shown >= 4) break;
+            Text pt(font, "\xE2\x96\xBA " + pname, 12);
+            pt.setFillColor(Color(160, 210, 255, 200));
+            pt.setPosition({ cardX + 16.f, nameY });
+            window.draw(pt);
+            nameY += 18.f; shown++;
+        }
+        if ((int)onlinePlayers.size() > 4) {
+            Text more(font, "  +" + std::to_string((int)onlinePlayers.size() - 4) + " more", 12);
+            more.setFillColor(Color(120, 140, 180));
+            more.setPosition({ cardX + 16.f, nameY });
+            window.draw(more);
+        }
+
         if (isActive) {
-            Text activeTxt(font, "YOU ARE HERE", 13);
-            activeTxt.setFillColor(Color(100, 255, 100));
-            FloatRect ab = activeTxt.getLocalBounds();
-            activeTxt.setPosition({ cardX + (cardW - ab.size.x) / 2.f, cardY + 90.f });
-            window.draw(activeTxt);
+            Text youTxt(font, "[ YOU ARE HERE ]", 12);
+            youTxt.setFillColor(Color(100, 255, 100));
+            FloatRect yb = youTxt.getLocalBounds();
+            youTxt.setPosition({ cardX + (cardW - yb.size.x) / 2.f, cardY + 195.f });
+            window.draw(youTxt);
         }
 
         // Play button
-        FloatRect playBtn({ cardX + 40.f, cardY + 140.f }, { cardW - 80.f, 40.f });
-        DrawMenuButton(window, playBtn, "PLAY", font, playBtn.contains(Vector2f(mousePos)));
+        FloatRect playBtn({ cardX + 55.f, cardY + 218.f }, { cardW - 110.f, 38.f });
+        DrawMenuButton(window, playBtn, isActive ? "PLAYING" : "PLAY", font, playBtn.contains(Vector2f(mousePos)));
     }
 
-    // Info
-    Text info1(font, "Other players appear as blue ghosts in-game.", 16);
-    info1.setFillColor(Color(160, 160, 200));
-    FloatRect i1b = info1.getLocalBounds();
-    info1.setPosition({ (1200.f - i1b.size.x) / 2.f, 440.f });
-    window.draw(info1);
+    // Refresh lobby data every 5 s
+    static float lobbyRefreshTimer = 0.f;
+    lobbyRefreshTimer += 0.016f; // called once per frame at ~60fps
+    if (lobbyRefreshTimer >= 5.f) { lobbyRefreshTimer = 0.f; ApiClient::instance().getLobbyRoomsAsync(); }
 
-    Text info2(font, "Login via pixelrun.web to manage your lobby.", 16);
-    info2.setFillColor(Color(160, 160, 200));
-    FloatRect i2b = info2.getLocalBounds();
-    info2.setPosition({ (1200.f - i2b.size.x) / 2.f, 470.f });
-    window.draw(info2);
-
-    FloatRect backBtn({ 450.f, 530.f }, { 300.f, 50.f });
+    FloatRect backBtn({ 450.f, 580.f }, { 300.f, 48.f });
     DrawMenuButton(window, backBtn, "BACK", font, backBtn.contains(Vector2f(mousePos)));
 }
 
@@ -1616,7 +1650,9 @@ int main()
     );
     Clock clock;
     GameState gameState = MAIN_MENU;
-    ghostRenderer.init(font, "Sprites/slime_walk.png");
+    ghostRenderer.init(font, "Sprites/player_walk.png");
+    // Poll lobby rooms from server immediately
+    ApiClient::instance().getLobbyRoomsAsync();
 
     bool waitingForRemap = false;
     Texture menuBgTexture;
@@ -1959,12 +1995,14 @@ int main()
                     else if (back.contains(mouse)) gameState = MAIN_MENU;
                 }
                 else if (gameState == LOBBY_MENU) {
-                    FloatRect backBtn({ 450.f, 530.f }, { 300.f, 50.f });
+                    FloatRect backBtn({ 450.f, 580.f }, { 300.f, 48.f });
                     if (backBtn.contains(mouse)) { gameState = LEVELS_MENU; }
                     else {
                         for (int i = 0; i < 3; i++) {
-                            float cardX = 150.f + i * 310.f;
-                            FloatRect playBtn({ cardX + 40.f, 210.f + 140.f }, { 190.f, 40.f });
+                            float cardX = 90.f + i * 345.f;
+                            float cardY = 170.f;
+                            float cardW = 310.f;
+                            FloatRect playBtn({ cardX + 55.f, cardY + 218.f }, { cardW - 110.f, 38.f });
                             if (playBtn.contains(mouse)) {
                                 currentLevel = i + 1;
                                 if (currentLevel == 3) {
@@ -2087,6 +2125,12 @@ int main()
                     else if (toMenu.contains(mouse)) {
                         gameState = MAIN_MENU;
                         player.reset();
+                        if (MultiplayerClient::instance().isConnected()) {
+                            auto mpp = player.getPosition();
+                            MultiplayerClient::instance().sendPosition(
+                                mpp.x, mpp.y, currentLevel,
+                                player.getFacingRight(), "idle", "menu");
+                        }
                     }
                 }
                 else if (gameState == LOGIN_MENU) {
@@ -2213,7 +2257,21 @@ int main()
 
         float dt = std::min(clock.restart().asSeconds(), 1.f / 30.f);
 
-        // Torch animation
+        if (MultiplayerClient::instance().consumeLogout()) {
+            ApiClient::instance().player.loggedIn = false;
+            ApiClient::instance().player.token.clear();
+            ApiClient::instance().player.username.clear();
+            ApiClient::instance().player.coins = 0;
+            MultiplayerClient::instance().disconnect();
+            if (gameState == PLAYING || gameState == PAUSED || gameState == GAME_OVER) {
+                gameState = MAIN_MENU;
+                player.reset();
+            }
+            loginError = "Session ended remotely (website logout).";
+            loginEmail.clear();
+            loginPassword.clear();
+        }
+
         if (gUsingMap3) {
             gTorchAnimTimer += dt;
             if (gTorchAnimTimer >= TORCH_FRAME_TIME) {
@@ -2241,8 +2299,10 @@ int main()
                     for (auto& e : enemies) if (!e.isAlive()) finalKills++;
                     LevelRecord nr(currentLevel, finalTime, finalCoins, finalKills, true);
                     saveBestRecord(nr); loadBestRecords();
-                    if (ApiClient::instance().player.loggedIn)
+                    if (ApiClient::instance().player.loggedIn) {
                         ApiClient::instance().submitRecordAsync(currentLevel, finalTime, finalCoins, finalKills);
+                        ApiClient::instance().refreshPlayerAsync();
+                    }
                     gameState = GAME_OVER;
                 }
             }
@@ -2293,17 +2353,23 @@ int main()
                     }
                 }
 
-                // Send multiplayer position ~10 Hz
                 mpSendTimer += dt;
                 if (mpSendTimer >= 0.1f) {
                     mpSendTimer = 0.f;
                     auto mp = player.getPosition();
                     MultiplayerClient::instance().sendPosition(
                         mp.x, mp.y, currentLevel,
-                        player.getFacingRight(),
-                        player.getAnimName().empty() ? "idle" : player.getAnimName());
+                        player.getFacingRight(), player.getAnimName(),
+                        "playing");
                 }
-                ghostRenderer.update(dt);
+
+                if (ApiClient::instance().player.loggedIn) {
+                    apiRefreshTimer += dt;
+                    if (apiRefreshTimer >= 3.f) {
+                        apiRefreshTimer = 0.f;
+                        ApiClient::instance().refreshPlayerAsync();
+                    }
+                }
 
                 if (!player.isAlive() && player.hasFinishedDeathAnimation()) {
                     levelCompleted = false;
@@ -2360,6 +2426,7 @@ int main()
                     loadBestRecords();
                     if (ApiClient::instance().player.loggedIn) {
                         ApiClient::instance().submitRecordAsync(currentLevel, finalTime, finalCoins, finalKills);
+                        ApiClient::instance().refreshPlayerAsync();
                     }
                     gameState = GAME_OVER;
                 }
@@ -2439,7 +2506,16 @@ int main()
             // Draw multiplayer ghosts (other players)
             {
                 auto mpOthers = MultiplayerClient::instance().getOtherPlayers();
+                ghostRenderer.update(dt);
                 ghostRenderer.draw(window, mpOthers, view1);
+            }
+
+            // Apply remote enemy kills from other players
+            {
+                auto remoteKills = MultiplayerClient::instance().getAndClearEnemyKills();
+                for (int idx : remoteKills)
+                    if (idx >= 0 && idx < (int)enemies.size() && enemies[idx].isAlive())
+                        enemies[idx].takeDamage(9999);
             }
 
             player.draw(window, view1, font, debugMode);

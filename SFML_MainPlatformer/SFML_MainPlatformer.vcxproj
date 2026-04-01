@@ -140,8 +140,10 @@
   <ItemGroup>
     <ClInclude Include="Enemy.h" />
     <ClInclude Include="Gamemap.h" />
+    <ClInclude Include="GameScene.h" />
     <ClInclude Include="Multiplayerclient.h" />
     <ClInclude Include="Player.h" />
+    <ClInclude Include="TrapSystem.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

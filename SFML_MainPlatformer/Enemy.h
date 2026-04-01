@@ -83,7 +83,7 @@ public:
 
     void update(float dt, const sf::Vector2f& playerPos,
         int map[][501], int mapWidth, int mapHeight, float tileSize);
-    void draw(sf::RenderWindow& window, bool debugMode = false);
+    void draw(sf::RenderWindow& window, bool debugMode = false, float lightLevel = 1.f);
     void takeDamage(int dmg);
 
     bool isAlive() const { return state != EnemyState::Dead; }

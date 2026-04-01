@@ -88,14 +88,14 @@ public:
     std::map<int, sf::Texture> textures;
     std::map<int, sf::Sprite>  sheet;
 
-    float lightMap[GMAP_H][GMAP_W] = {};
+    std::vector<float> lightMap;
 
     GameMap() {
         background = std::make_unique<int[]>(GMAP_W * GMAP_H);
         tiles = std::make_unique<int[]>(GMAP_W * GMAP_H);
         std::fill(background.get(), background.get() + GMAP_W * GMAP_H, -1);
         std::fill(tiles.get(), tiles.get() + GMAP_W * GMAP_H, -1);
-        std::fill(&lightMap[0][0], &lightMap[0][0] + GMAP_H * GMAP_W, 0.f);
+        lightMap.assign(GMAP_W * GMAP_H, 0.f);
     }
 
     // ── Загрузка текстур ──────────────────────────────────────────────────────
@@ -113,15 +113,27 @@ public:
             std::istringstream ss(line);
             int id; std::string path;
             if (!(ss >> id >> path)) continue;
+
+            // Fallback path
+            auto tryLoad = [&](const std::string& p) -> bool {
+                return textures[id].loadFromFile(p);
+                };
             textures[id] = sf::Texture();
-            bool ok = textures[id].loadFromFile(path);
+            bool ok = tryLoad(path);
             if (!ok) {
                 std::string alt = "Sprites/" + path.substr(path.find_last_of("/\\") + 1);
-                ok = textures[id].loadFromFile(alt);
+                ok = tryLoad(alt);
                 if (ok) path = alt;
             }
+
             if (ok) {
-                sheet.emplace(id, sf::Sprite(textures[id]));
+                // id=7 (Saw): только левая 32x32 — точно как в мап-криейторе
+                // tx_Saw.loadFromFile("Sprites/Saw.png", true, IntRect({0,0},{32,32}));
+                if (id == 7 || id == 6) {
+                    textures[id] = sf::Texture();
+                    textures[id].loadFromFile(path, true, sf::IntRect({ 0, 0 }, { 32, 32 }));
+                }
+                sheet.insert_or_assign(id, sf::Sprite(textures[id]));
                 ++loaded;
                 std::cout << "[GameMap] tile " << id << " -> " << path << "\n";
             }
@@ -166,7 +178,7 @@ public:
     // ── BFS-освещение (статика: факелы, LightElem) ────────────────────────────
     // Вызвать ОДИН РАЗ после load(). Враги (ENT_ENEMY) исключены — они динамика.
     void calculateStaticLight(float tileSize) {
-        std::fill(&lightMap[0][0], &lightMap[0][0] + GMAP_H * GMAP_W, 0.f);
+        std::fill(lightMap.begin(), lightMap.end(), 0.f);
         std::queue<std::pair<int, int>> q;
 
         for (auto& e : entities) {
@@ -174,8 +186,8 @@ public:
             int tx = (int)(e.position.x / tileSize);
             int ty = (int)(e.position.y / tileSize);
             if (tx < 0 || ty < 0 || tx >= GMAP_W || ty >= GMAP_H) continue;
-            if (e.light > lightMap[ty][tx]) {
-                lightMap[ty][tx] = e.light;
+            if (e.light > lightMap[ty * GMAP_W + tx]) {
+                lightMap[ty * GMAP_W + tx] = e.light;
                 q.push({ tx, ty });
             }
         }
@@ -183,15 +195,15 @@ public:
         const std::pair<int, int> dirs[] = { {1,0},{-1,0},{0,1},{0,-1} };
         while (!q.empty()) {
             auto [x, y] = q.front(); q.pop();
-            float cur = lightMap[y][x];
+            float cur = lightMap[y * GMAP_W + x];
             for (auto [dx, dy] : dirs) {
                 int nx = x + dx, ny = y + dy;
                 if (nx < 0 || ny < 0 || nx >= GMAP_W || ny >= GMAP_H) continue;
                 float decay = (tiles[ny * GMAP_W + nx] == -1)
                     ? LightConst::AIR_DECAY : LightConst::BLOCK_DECAY;
                 float nv = cur - decay;
-                if (nv > 0.f && nv > lightMap[ny][nx]) {
-                    lightMap[ny][nx] = nv;
+                if (nv > 0.f && nv > lightMap[ny * GMAP_W + nx]) {
+                    lightMap[ny * GMAP_W + nx] = nv;
                     q.push({ nx, ny });
                 }
             }
@@ -205,7 +217,7 @@ public:
             for (int dx = -1; dx <= 1; ++dx) {
                 int nx = x + dx, ny = y + dy;
                 if (nx < 0 || ny < 0 || nx >= GMAP_W || ny >= GMAP_H) continue;
-                sum += lightMap[ny][nx]; ++cnt;
+                sum += lightMap[ny * GMAP_W + nx]; ++cnt;
             }
         return cnt > 0 ? sum / cnt : 0.f;
     }
@@ -276,7 +288,7 @@ public:
                 auto it = sheet.find(id);
                 if (it == sheet.end()) continue;
                 if (useLightTint) {
-                    float lv = std::min(LightConst::TILE_MIN + getSmoothLight(x, y) * 0.38f, 1.f);
+                    float lv = std::min(LightConst::TILES_MIN + getSmoothLight(x, y) * 0.65f, 1.f);
                     uint8_t b = (uint8_t)(lv * 255.f);
                     it->second.setColor({ b, b, b, 255 });
                 }
@@ -311,33 +323,58 @@ public:
             }
     }
 
-    // ── Отрисовка энтити (не-врагов) ─────────────────────────────────────────
+    // ── Отрисовка энтити (не-врагов) — точно как в мап-криейторе ────────────
     void drawEntities(sf::RenderWindow& window, const sf::View& cam, bool backOnly,
         bool useLightTint = true, float tileSize = 32.f) {
         sf::Vector2f tl = cam.getCenter() - cam.getSize() / 2.f;
         sf::Vector2f br = cam.getCenter() + cam.getSize() / 2.f;
 
-        for (auto& e : entities) {
-            if (e.textureId < 0)       continue;
-            if (e.type == ENT_ENEMY)   continue; // управляется классом Enemy
+        for (int i = 0; i < (int)entities.size(); ++i) {
+            const MapEntity& e = entities[i];
+            if (e.textureId < 0)     continue;
+            if (e.type == ENT_ENEMY) continue;
 
-            bool isBack = (e.type == ENT_BACKTRAP);
-            if (backOnly != isBack)    continue;
+            bool isBack = (e.type == ENT_BACKTRAP) || (e.textureId == 7);
+            if (backOnly != isBack) continue;
 
             auto it = sheet.find(e.textureId);
-            if (it == sheet.end())     continue;
+            if (it == sheet.end())   continue;
 
-            sf::Sprite& spr = it->second;
-            sf::Vector2u sz = spr.getTexture().getSize();
-            if (e.position.x + sz.x < tl.x) continue;
-            if (e.position.y + sz.y < tl.y) continue;
-            if (e.position.x > br.x)        continue;
-            if (e.position.y > br.y)        continue;
+            // КОПИЯ — не трогаем оригинал в sheet, иначе позиция/цвет накапливаются
+            sf::Sprite spr = it->second;
+            auto texSize = spr.getTexture().getSize();
+            spr.setTextureRect(sf::IntRect({ 0, 0 }, { (int)texSize.x, (int)texSize.y }));
+            spr.setScale({ tileSize / (float)texSize.x, tileSize / (float)texSize.y });
+            if (e.textureId == 7) {
+                spr.setTextureRect(sf::IntRect({ 0, 0 }, { 32, 32 }));
+                spr.setScale({ 1.f, 1.f }); // пила уже 32x32, не масштабируем
+            }
+            // Пила (id=7): текстура уже загружена обрезанной до {0,0,32,32}
+            // в loadTextures / _loadDefaultTextures — ничего дополнительно не делаем,
+            // sprite уже содержит правильный textureRect из конструктора.
+            // (Предыдущий код брал half = sz.x/2 = 16 от уже-32px текстуры → баг.)
+
+            // Frustum culling по tileSize — независимо от размера текстуры
+            // (важно для spikes.png 64x27 и других нестандартных спрайтов)
+            if (e.position.x + tileSize < tl.x || e.position.x > br.x) continue;
+            if (e.position.y + tileSize < tl.y || e.position.y > br.y) continue;
+
+            spr.setPosition(e.position);
+
+            if (e.type == ENT_BACKTRAP || e.textureId == 8 || e.textureId == 9 ||
+                e.textureId == 10 || e.textureId == 11) {
+                auto tex = spr.getTexture();
+                if (tex) {
+                    float texH = (float)tex->getSize().y;
+                    float offsetY = tileSize - texH;
+                    spr.move(0.f, offsetY);
+                }
+            }
 
             if (useLightTint) {
-                int tx = std::clamp((int)((e.position.x + sz.x * 0.5f) / tileSize), 0, GMAP_W - 1);
-                int ty = std::clamp((int)((e.position.y + sz.y * 0.5f) / tileSize), 0, GMAP_H - 1);
-                // Объект-источник сам себя освещает
+                // Центр энтити — берём середину тайла (tileSize/2)
+                int tx = std::clamp((int)((e.position.x + tileSize * 0.5f) / tileSize), 0, GMAP_W - 1);
+                int ty = std::clamp((int)((e.position.y + tileSize * 0.5f) / tileSize), 0, GMAP_H - 1);
                 float lv = std::max(getSmoothLight(tx, ty), e.light);
                 lv = std::clamp(LightConst::TILES_MIN + lv * 0.9f, 0.f, 1.f);
                 uint8_t b = (uint8_t)(lv * 255.f);
@@ -347,7 +384,6 @@ public:
                 spr.setColor(sf::Color::White);
             }
 
-            spr.setPosition(e.position);
             window.draw(spr);
         }
     }

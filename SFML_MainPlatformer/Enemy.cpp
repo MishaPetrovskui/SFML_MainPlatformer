@@ -23,6 +23,7 @@ Enemy::Enemy(float x, float y, sf::Texture& fallbackTexture, float tileSize)
     hitbox.setSize({ tileSize, tileSize });
     hitbox.setPosition({ x, y });
     hitbox.setFillColor(sf::Color::Transparent);
+    hitbox.setOutlineThickness(0.f);
 
     spawnPos = { x, y };
     detectionRange = tileSize * 8.f;
@@ -56,24 +57,13 @@ Enemy::Enemy(float x, float y, sf::Texture& fallbackTexture, float tileSize)
 }
 
 void Enemy::initFromMapEntity(int hp_val, int dmg_val, float spd_val, float light_val) {
-    // Применяем только ненулевые значения — дефолты из конструктора остаются как fallback
-    if (hp_val > 0) {
-        maxHp = hp_val;
-        hp = maxHp;
-    }
-    if (dmg_val > 0) {
-        contactDamage = dmg_val;
-    }
-    if (spd_val > 0.f) {
-        speed = spd_val;
-    }
-    // Свечение: 0..1 из мап-криейтора
+    if (hp_val > 0) { maxHp = hp_val; hp = maxHp; }
+    if (dmg_val > 0) contactDamage = dmg_val;
+    if (spd_val > 0.f) speed = spd_val;
     lightEmit = std::clamp(light_val, 0.f, 1.f);
 }
 
-void Enemy::loadAnimations(const std::string& walkPath,
-    const std::string& attackPath)
-{
+void Enemy::loadAnimations(const std::string& walkPath, const std::string& attackPath) {
     {
         Animation& a = animations["walkToRight"];
         if (!a.texture.loadFromFile(walkPath))
@@ -83,7 +73,7 @@ void Enemy::loadAnimations(const std::string& walkPath,
         int cnt = (fw > 0 && fh > 0) ? (int)a.texture.getSize().x / fw : 1;
         for (int i = 0; i < cnt; ++i)
             a.frames.push_back(sf::IntRect({ i * fw, 0 }, { fw, fh }));
-        std::cout << "[Enemy] walk: " << cnt << " frames " << fw << "x" << fh << "\n";
+        std::cout << "[Enemy] walk: " << cnt << " frames\n";
     }
     {
         Animation& walk = animations["walkToRight"];
@@ -102,62 +92,42 @@ void Enemy::loadAnimations(const std::string& walkPath,
         int cnt = (fw > 0 && fh > 0) ? (int)a.texture.getSize().x / fw : 1;
         for (int i = 0; i < cnt; ++i)
             a.frames.push_back(sf::IntRect({ i * fw, 0 }, { fw, fh }));
-        std::cout << "[Enemy] attack: " << cnt << " frames " << fw << "x" << fh << "\n";
+        std::cout << "[Enemy] attack: " << cnt << " frames\n";
     }
-
     setAnimation("idle");
 }
 
 void Enemy::setAnimation(const std::string& name) {
     if (currentAnimation == name) return;
     if (animations.find(name) == animations.end()) return;
-
     currentAnimation = name;
-    animFrame = 0;
-    animTimer = 0.f;
+    animFrame = 0; animTimer = 0.f;
     if (name == "attack") { attackPlaying = true; attackHitDealt = false; }
-
     Animation& anim = animations[name];
     sprite.setTexture(anim.texture, true);
-    if (!anim.frames.empty())
-        sprite.setTextureRect(anim.frames[0]);
+    if (!anim.frames.empty()) sprite.setTextureRect(anim.frames[0]);
 }
 
 void Enemy::updateAnimation(float dt) {
     if (animations.empty()) return;
     auto it = animations.find(currentAnimation);
     if (it == animations.end() || it->second.frames.empty()) return;
-
     Animation& anim = it->second;
-
     float spd = (currentAnimation == "idle") ? 0.35f
         : (currentAnimation == "walkToRight") ? 0.10f
-        : (currentAnimation == "attack") ? 0.08f
-        : animSpeed;
-
+        : (currentAnimation == "attack") ? 0.08f : animSpeed;
     animTimer += dt;
     if (animTimer >= spd) {
-        animTimer = 0.f;
-        animFrame++;
-
+        animTimer = 0.f; animFrame++;
         if (currentAnimation == "attack") {
-            if (animFrame == 2 && !attackHitDealt) {
-                attackHitDealt = true;
-                pendingDamage = contactDamage;
-            }
-            if (animFrame >= (int)anim.frames.size()) {
-                animFrame = (int)anim.frames.size() - 1;
-                attackPlaying = false;
-            }
+            if (animFrame == 2 && !attackHitDealt) { attackHitDealt = true; pendingDamage = contactDamage; }
+            if (animFrame >= (int)anim.frames.size()) { animFrame = (int)anim.frames.size() - 1; attackPlaying = false; }
         }
         else {
-            if (animFrame >= (int)anim.frames.size())
-                animFrame = 0;
+            if (animFrame >= (int)anim.frames.size()) animFrame = 0;
         }
-
         sprite.setTexture(anim.texture, true);
-        if (animFrame < (int)anim.frames.size())
-            sprite.setTextureRect(anim.frames[animFrame]);
+        if (animFrame < (int)anim.frames.size()) sprite.setTextureRect(anim.frames[animFrame]);
     }
 }
 
@@ -165,14 +135,10 @@ bool Enemy::hasLineOfSight(const sf::Vector2f& playerPos,
     int map[][501], int mapWidth, int mapHeight, float tileSize) const
 {
     sf::FloatRect hb = hitbox.getGlobalBounds();
-    sf::Vector2f start = {
-        hb.position.x + hb.size.x * 0.5f,
-        hb.position.y + hb.size.y * 0.5f
-    };
+    sf::Vector2f start = { hb.position.x + hb.size.x * 0.5f, hb.position.y + hb.size.y * 0.5f };
     sf::Vector2f dir = playerPos - start;
     float dist = std::sqrt(dir.x * dir.x + dir.y * dir.y);
     if (dist < 1.f) return true;
-
     int steps = static_cast<int>(dist / (tileSize * 0.45f)) + 2;
     sf::Vector2f step = dir / static_cast<float>(steps);
     for (int i = 1; i < steps; ++i) {
@@ -190,13 +156,10 @@ void Enemy::update(float dt, const sf::Vector2f& playerPos,
 {
     if (state == EnemyState::Dead) return;
 
-    lastMapWidth = mapWidth;
-    lastMapHeight = mapHeight;
-    lastTileSize = tileSize;
+    lastMapWidth = mapWidth; lastMapHeight = mapHeight; lastTileSize = tileSize;
 
     sf::Vector2f pos = hitbox.getPosition();
-    float hw = hitbox.getSize().x;
-    float hh = hitbox.getSize().y;
+    float hw = hitbox.getSize().x, hh = hitbox.getSize().y;
 
     velocityY += gravity * dt;
     float nextY = pos.y + velocityY * dt;
@@ -210,107 +173,70 @@ void Enemy::update(float dt, const sf::Vector2f& playerPos,
         for (int tx = leftTile; tx <= rightTile; ++tx) {
             if (isSolidTile(map[footTile][tx])) {
                 pos.y = footTile * tileSize - hh;
-                velocityY = 0.f;
-                onGround = true;
-                break;
+                velocityY = 0.f; onGround = true; break;
             }
         }
     }
     if (!onGround) pos.y = nextY;
 
-    if (pos.y > spawnPos.y + tileSize * 6.f) {
-        pos = spawnPos;
-        velocityY = 0.f;
-        hp = maxHp;
-        state = EnemyState::Idle;
-        contactTimer = 0.f;
-        hitbox.setPosition(pos);
-        return;
-    }
-
-    float cx = pos.x + hw * 0.5f;
-    float cy = pos.y + hh * 0.5f;
-    float dx = playerPos.x - cx;
-    float dy = playerPos.y - cy;
-    float dist = std::sqrt(dx * dx + dy * dy);
-
-    bool playerDetected = false;
-    if (dist <= closeDetectRadius) {
-        playerDetected = true;
-    }
-    else if (dist <= detectionRange && std::abs(dy) <= verticalDetectRange) {
-        float ndx = dx / dist;
-        float dot = ndx * (float)facingDir;
-        if (dot >= visionAngleCos)
-            playerDetected = hasLineOfSight(playerPos, map, mapWidth, mapHeight, tileSize);
-    }
-
-    if (playerDetected) {
-        state = EnemyState::Chasing;
-        isLooking = false;
-    }
-    else if (state == EnemyState::Chasing) {
-        state = EnemyState::Returning;
-    }
-
     float moveX = 0.f;
+    sf::Vector2f myCenter = { pos.x + hw * 0.5f, pos.y + hh * 0.5f };
+    sf::Vector2f toPlayer = playerPos - myCenter;
+    float distToPlayer = std::sqrt(toPlayer.x * toPlayer.x + toPlayer.y * toPlayer.y);
+
+    bool playerClose = (distToPlayer <= closeDetectRadius);
+    bool playerInRange = (distToPlayer <= detectionRange) && (std::abs(toPlayer.y) <= verticalDetectRange);
+    bool playerInFront = false;
+    if (distToPlayer > 0.f) {
+        sf::Vector2f dn = toPlayer / distToPlayer;
+        playerInFront = (facingDir * dn.x >= visionAngleCos);
+    }
+    bool canSee = (playerClose || (playerInFront && playerInRange)) &&
+        hasLineOfSight(playerPos, map, mapWidth, mapHeight, tileSize);
 
     if (state == EnemyState::Chasing) {
-        if (dx < -2.f) { moveX = -speed; facingDir = -1; }
-        else if (dx > 2.f) { moveX = speed; facingDir = 1; }
-    }
-    else if (state == EnemyState::Returning) {
-        float sx = spawnPos.x;
-        if (std::abs(pos.x - sx) > 3.f) {
-            moveX = (pos.x < sx) ? speed : -speed;
+        if (!canSee && distToPlayer > detectionRange * 1.2f) state = EnemyState::Returning;
+        else {
+            moveX = (toPlayer.x > 0.f) ? speed : -speed;
             facingDir = (moveX > 0.f) ? 1 : -1;
         }
-        else {
-            pos.x = sx;
-            state = EnemyState::Idle;
-        }
     }
-    else if (state == EnemyState::Idle) {
-        if (isLooking) {
-            lookTimer -= dt;
-            if (lookTimer <= 0.f) {
-                isLooking = false;
-                lookTimer = lookInterval;
-            }
-        }
-        if (!isLooking) {
-            patrolPhaseTimer -= dt;
-            if (patrolPhaseTimer <= 0.f) {
-                patrolWalking = !patrolWalking;
-                patrolPhaseTimer = patrolWalking ? patrolWalkTime : patrolWaitTime;
+    else if (state == EnemyState::Returning) {
+        sf::Vector2f toSpawn = spawnPos - pos;
+        float dSpawn = std::sqrt(toSpawn.x * toSpawn.x + toSpawn.y * toSpawn.y);
+        if (dSpawn < 4.f) { state = EnemyState::Idle; pos = spawnPos; }
+        else { moveX = (toSpawn.x > 0.f) ? speed * 0.7f : -speed * 0.7f; facingDir = (moveX > 0.f) ? 1 : -1; }
+        if (canSee) state = EnemyState::Chasing;
+    }
+    else {
+        if (canSee) { state = EnemyState::Chasing; }
+        else {
+            if (isLooking) { lookTimer -= dt; if (lookTimer <= 0.f) { isLooking = false; lookTimer = lookInterval; } }
+            if (!isLooking) {
+                patrolPhaseTimer -= dt;
+                if (patrolPhaseTimer <= 0.f) {
+                    patrolWalking = !patrolWalking;
+                    patrolPhaseTimer = patrolWalking ? patrolWalkTime : patrolWaitTime;
+                    if (patrolWalking) { patrolDir = -patrolDir; facingDir = (patrolDir > 0.f) ? 1 : -1; }
+                }
                 if (patrolWalking) {
-                    patrolDir = -patrolDir;
-                    facingDir = (patrolDir > 0.f) ? 1 : -1;
-                }
-            }
-            if (patrolWalking) {
-                float distFromSpawn = pos.x - spawnPos.x;
-                if ((patrolDir > 0.f && distFromSpawn < patrolRange) ||
-                    (patrolDir < 0.f && distFromSpawn > -patrolRange)) {
-                    moveX = patrolDir * speed * 0.6f;
-                    facingDir = (moveX > 0.f) ? 1 : -1;
-                }
-                else {
-                    patrolDir = -patrolDir;
-                    facingDir = (patrolDir > 0.f) ? 1 : -1;
-                    patrolPhaseTimer = patrolWaitTime;
-                    patrolWalking = false;
-                }
-                int nextTileX = (int)std::floor((pos.x + hw * 0.5f + moveX * dt + patrolDir * hw * 0.5f) / tileSize);
-                int belowTile = (int)std::floor((pos.y + hh + 2.f) / tileSize);
-                if (belowTile >= 0 && belowTile < mapHeight &&
-                    nextTileX >= 0 && nextTileX < mapWidth) {
-                    if (!isSolidTile(map[belowTile][nextTileX])) {
-                        moveX = 0.f;
-                        patrolDir = -patrolDir;
-                        facingDir = (patrolDir > 0.f) ? 1 : -1;
-                        patrolWalking = false;
-                        patrolPhaseTimer = patrolWaitTime;
+                    float distFromSpawn = pos.x - spawnPos.x;
+                    if ((patrolDir > 0.f && distFromSpawn < patrolRange) ||
+                        (patrolDir < 0.f && distFromSpawn > -patrolRange)) {
+                        moveX = patrolDir * speed * 0.6f;
+                        facingDir = (moveX > 0.f) ? 1 : -1;
+                    }
+                    else {
+                        patrolDir = -patrolDir; facingDir = (patrolDir > 0.f) ? 1 : -1;
+                        patrolPhaseTimer = patrolWaitTime; patrolWalking = false;
+                    }
+                    int nextTileX = (int)std::floor((pos.x + hw * 0.5f + moveX * dt + patrolDir * hw * 0.5f) / tileSize);
+                    int belowTile = (int)std::floor((pos.y + hh + 2.f) / tileSize);
+                    if (belowTile >= 0 && belowTile < mapHeight && nextTileX >= 0 && nextTileX < mapWidth) {
+                        if (!isSolidTile(map[belowTile][nextTileX])) {
+                            moveX = 0.f; patrolDir = -patrolDir; facingDir = (patrolDir > 0.f) ? 1 : -1;
+                            patrolWalking = false; patrolPhaseTimer = patrolWaitTime;
+                        }
                     }
                 }
             }
@@ -319,21 +245,13 @@ void Enemy::update(float dt, const sf::Vector2f& playerPos,
 
     if (moveX != 0.f) {
         float nextX = pos.x + moveX * dt;
-        int checkTileX = (moveX > 0.f)
-            ? (int)std::floor((nextX + hw) / tileSize)
-            : (int)std::floor(nextX / tileSize);
+        int checkTileX = (moveX > 0.f) ? (int)std::floor((nextX + hw) / tileSize) : (int)std::floor(nextX / tileSize);
         int midTileY = (int)std::floor((pos.y + hh * 0.5f) / tileSize);
-
         bool wallHit = false;
-        if (checkTileX >= 0 && checkTileX < mapWidth &&
-            midTileY >= 0 && midTileY < mapHeight)
+        if (checkTileX >= 0 && checkTileX < mapWidth && midTileY >= 0 && midTileY < mapHeight)
             if (isSolidTile(map[midTileY][checkTileX])) wallHit = true;
-
         if (!wallHit) pos.x = nextX;
-        else if (state == EnemyState::Idle) {
-            patrolDir = -patrolDir;
-            facingDir = (patrolDir > 0.f) ? 1 : -1;
-        }
+        else if (state == EnemyState::Idle) { patrolDir = -patrolDir; facingDir = (patrolDir > 0.f) ? 1 : -1; }
     }
 
     if (hp <= 0) state = EnemyState::Dead;
@@ -341,43 +259,38 @@ void Enemy::update(float dt, const sf::Vector2f& playerPos,
 
     hitbox.setPosition(pos);
 
-    if (!attackPlaying) {
-        bool moving = (std::abs(moveX) > 1.f);
-        setAnimation(moving ? "walkToRight" : "idle");
-    }
-
+    if (!attackPlaying) setAnimation(std::abs(moveX) > 1.f ? "walkToRight" : "idle");
     updateAnimation(dt);
 
     static constexpr float CONTENT_CENTER_X = 32.f;
     static constexpr float CONTENT_BOTTOM_Y = 48.f;
     static constexpr float CONTENT_W = 30.f;
-
-    float scale = hw / CONTENT_W;
-    if (scale > 3.f) scale = 3.f;
-    if (scale < 0.5f) scale = 0.5f;
+    float scale = std::clamp(hw / CONTENT_W, 0.5f, 3.f);
 
     sprite.setOrigin({ CONTENT_CENTER_X, CONTENT_BOTTOM_Y });
     int renderDir = (currentAnimation == "attack") ? -facingDir : facingDir;
-    sprite.setScale(renderDir > 0
-        ? sf::Vector2f{ scale, scale }
-    : sf::Vector2f{ -scale, scale });
+    sprite.setScale(renderDir > 0 ? sf::Vector2f{ scale, scale } : sf::Vector2f{ -scale, scale });
     sprite.setPosition({ pos.x + hw * 0.5f, pos.y + hh });
 }
 
-void Enemy::draw(sf::RenderWindow& window, bool debugMode) {
+void Enemy::draw(sf::RenderWindow& window, bool debugMode, float lightLevel) {
+    // Мёртвый враг — НИЧЕГО не рисуем (никаких теней и хитбоксов)
     if (state == EnemyState::Dead) return;
 
+    // Освещение через цвет спрайта — без отдельных прямоугольников
+    uint8_t br = (uint8_t)(std::clamp(lightLevel, 0.f, 1.f) * 255.f);
+    sprite.setColor({ br, br, br, 255 });
     window.draw(sprite);
+    sprite.setColor(sf::Color::White);
 
+    // HP-бар
     sf::Vector2f hbPos = hitbox.getPosition();
     float hw = hitbox.getSize().x;
-    float hh = hitbox.getSize().y;
     float barW = 36.f;
     sf::RectangleShape bg({ barW, 6.f });
     bg.setFillColor(sf::Color(50, 50, 50, 200));
     bg.setPosition({ hbPos.x + hw * 0.5f - barW * 0.5f, hbPos.y - 10.f });
     window.draw(bg);
-
     float perc = std::max(0.f, (float)hp / (float)maxHp);
     sf::RectangleShape fg({ barW * perc, 6.f });
     fg.setFillColor(sf::Color::Green);
@@ -386,6 +299,7 @@ void Enemy::draw(sf::RenderWindow& window, bool debugMode) {
 
     if (!debugMode) return;
 
+    // Debug: hitbox
     sf::RectangleShape dbgBox(hitbox.getSize());
     dbgBox.setPosition(hbPos);
     dbgBox.setFillColor(sf::Color::Transparent);
@@ -393,59 +307,29 @@ void Enemy::draw(sf::RenderWindow& window, bool debugMode) {
     dbgBox.setOutlineThickness(1.f);
     window.draw(dbgBox);
 
-    sf::Vector2f center = { hbPos.x + hw * 0.5f, hbPos.y + hh * 0.5f };
+    // Debug: vision cone
+    sf::Vector2f center = { hbPos.x + hw * 0.5f, hbPos.y + hitbox.getSize().y * 0.5f };
     const int SEG = 24;
     const float halfAngle = std::acos(visionAngleCos);
     float baseAngle = (facingDir > 0) ? 0.f : 3.14159265f;
-
-    float worldW = (lastMapWidth > 0) ? lastMapWidth * lastTileSize : 1e9f;
-    float worldH = (lastMapHeight > 0) ? lastMapHeight * lastTileSize : 1e9f;
-
-    auto clipRay = [&](float angle) -> sf::Vector2f {
-        float dx = std::cos(angle);
-        float dy = std::sin(angle);
-        float tMax = detectionRange;
-        if (dx != 0.f) {
-            if (dx > 0.f) tMax = std::min(tMax, (worldW - center.x) / dx);
-            else           tMax = std::min(tMax, (0.f - center.x) / dx);
-        }
-        if (dy != 0.f) {
-            if (dy > 0.f) tMax = std::min(tMax, (worldH - center.y) / dy);
-            else           tMax = std::min(tMax, (0.f - center.y) / dy);
-        }
-        tMax = std::max(0.f, tMax);
-        return { center.x + dx * tMax, center.y + dy * tMax };
+    float worldW = lastMapWidth > 0 ? lastMapWidth * lastTileSize : 1e9f;
+    float worldH = lastMapHeight > 0 ? lastMapHeight * lastTileSize : 1e9f;
+    auto clipRay = [&](float a) -> sf::Vector2f {
+        float dx = std::cos(a), dy = std::sin(a);
+        float t = detectionRange;
+        if (dx > 0.f) t = std::min(t, (worldW - center.x) / dx);
+        else if (dx < 0.f) t = std::min(t, -center.x / dx);
+        if (dy > 0.f) t = std::min(t, (worldH - center.y) / dy);
+        else if (dy < 0.f) t = std::min(t, -center.y / dy);
+        return { center.x + dx * std::max(0.f,t), center.y + dy * std::max(0.f,t) };
         };
-
     sf::VertexArray cone(sf::PrimitiveType::TriangleFan, SEG + 2);
-    cone[0].position = center;
-    cone[0].color = sf::Color(255, 255, 0, 50);
+    cone[0] = { center, sf::Color(255, 255, 0, 50) };
     for (int i = 0; i <= SEG; ++i) {
         float a = baseAngle - halfAngle + (2.f * halfAngle * i / SEG);
-        cone[i + 1].position = clipRay(a);
-        cone[i + 1].color = sf::Color(255, 255, 0, 10);
+        cone[i + 1] = { clipRay(a), sf::Color(255, 255, 0, 10) };
     }
     window.draw(cone);
-
-    sf::VertexArray coneLines(sf::PrimitiveType::Lines, 4);
-    coneLines[0] = { center, sf::Color(255, 255, 0, 180) };
-    coneLines[1] = { clipRay(baseAngle - halfAngle), sf::Color(255, 255, 0, 60) };
-    coneLines[2] = { center, sf::Color(255, 255, 0, 180) };
-    coneLines[3] = { clipRay(baseAngle + halfAngle), sf::Color(255, 255, 0, 60) };
-    window.draw(coneLines);
-
-    const int CR = 20;
-    sf::VertexArray circle(sf::PrimitiveType::TriangleFan, CR + 2);
-    circle[0].position = center;
-    circle[0].color = sf::Color(255, 80, 80, 60);
-    for (int i = 0; i <= CR; ++i) {
-        float a = 2.f * 3.14159265f * i / CR;
-        circle[i + 1].position = { center.x + std::cos(a) * closeDetectRadius,
-                                  center.y + std::sin(a) * closeDetectRadius };
-        circle[i + 1].color = sf::Color(255, 80, 80, 20);
-    }
-    window.draw(circle);
-
     sf::CircleShape spawnDot(4.f);
     spawnDot.setFillColor(sf::Color(0, 200, 255, 180));
     spawnDot.setPosition({ spawnPos.x - 4.f, spawnPos.y - 4.f });
@@ -459,35 +343,24 @@ void Enemy::takeDamage(int dmg) {
         setAnimation("attack");
         animFrame = 0; animTimer = 0.f;
         auto& anim = animations["attack"];
-        if (!anim.frames.empty())
-            sprite.setTextureRect(anim.frames[0]);
+        if (!anim.frames.empty()) sprite.setTextureRect(anim.frames[0]);
     }
 }
 
 int Enemy::checkAndGetContactDamage(const sf::FloatRect& playerBounds, float dt) {
     if (state == EnemyState::Dead) return 0;
-
     bool touching = rectsIntersect(playerBounds, hitbox.getGlobalBounds());
-
     if (touching && !attackPlaying && contactTimer <= 0.f) {
         float playerCX = playerBounds.position.x + playerBounds.size.x * 0.5f;
         float myCX = hitbox.getPosition().x + hitbox.getSize().x * 0.5f;
         facingDir = (playerCX < myCX) ? -1 : 1;
-
         setAnimation("attack");
         animFrame = 0; animTimer = 0.f;
         auto& anim = animations["attack"];
-        if (!anim.frames.empty())
-            sprite.setTextureRect(anim.frames[0]);
+        if (!anim.frames.empty()) sprite.setTextureRect(anim.frames[0]);
         contactTimer = contactCooldown;
     }
-
-    if (pendingDamage > 0 && touching) {
-        int dmg = pendingDamage;
-        pendingDamage = 0;
-        return dmg;
-    }
+    if (pendingDamage > 0 && touching) { int dmg = pendingDamage; pendingDamage = 0; return dmg; }
     if (!touching) pendingDamage = 0;
-
     return 0;
 }

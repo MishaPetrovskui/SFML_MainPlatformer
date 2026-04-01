@@ -1,6 +1,7 @@
 #include "Player.h"
 #include "Enemy.h"
 #include "Gamemap.h"
+#include "TrapSystem.h"
 #include "ApiClient.h"
 #include "MultiplayerClient.h"
 #include <algorithm>
@@ -1207,6 +1208,14 @@ void Player::update(float dt, const GameMap& gmap, float tileSize,
     }
 
     shape.setPosition(posXY);
+
+    // Урон от ENT_TRAP / ENT_BACKTRAP (шипы, пилы) из мап-криейтора
+    {
+        sf::FloatRect ib = getInnerBounds();
+        int trapDmg = TrapSystem::checkDamage(ib, gmap, dt);
+        if (trapDmg > 0) applyDamage(trapDmg);
+    }
+
     if (limitedDashMode && onGround) dashAvailable = true;
     jumpHeld = jumpKeyDown;
 

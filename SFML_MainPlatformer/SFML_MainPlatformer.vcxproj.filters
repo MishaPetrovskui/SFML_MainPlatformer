@@ -44,5 +44,11 @@
     <ClInclude Include="Multiplayerclient.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="TrapSystem.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="GameScene.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

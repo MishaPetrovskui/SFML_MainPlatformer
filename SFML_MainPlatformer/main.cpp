@@ -526,17 +526,16 @@ static void drawMap3EntitiesLit(sf::RenderWindow& window,
         // 18 → spikes.png (animated, 2 frames), 19 → SmallSpike, 20 → Spikes_3, 21 → Spikes_4
         // If ID unknown, fall back to any loaded spike texture.
         if (ent.textureId == 18 && hasSpikes) {
-            // Animated: extract current frame column from the spritesheet
-            sf::Sprite s(gSpikesFullTex,
-                sf::IntRect({ gSpikeAnimFrame * SPIKE_FW, 0 },
-                    { SPIKE_FW, spikeFrameH }));
-            // Scale height to tile size, keep pixel-perfect width
-            float scaleY = MAP3_TILE_SIZE / (float)spikeFrameH;
-            float scaleX = MAP3_TILE_SIZE / (float)SPIKE_FW;
-            s.setScale({ scaleX, scaleY });
-            s.setColor(col);
-            s.setPosition(ent.position);
-            window.draw(s);
+            //// Animated: extract current frame column from the spritesheet
+            //sf::Sprite s(gSpikesFullTex);
+            //// Scale height to tile size, keep pixel-perfect width
+            //float scaleY = MAP3_TILE_SIZE / (float)spikeFrameH;
+            //float scaleX = MAP3_TILE_SIZE / (float)SPIKE_FW;
+            //s.setScale({ scaleX, scaleY });
+            //s.setColor(col);
+            //s.setPosition(ent.position);
+            //window.draw(s);
+            drawScaled(gSpikesFullTex, ent.position, col);
         }
         else if (ent.textureId == 19 && gSpikesSmallTex.getSize().x > 0) {
             drawScaled(gSpikesSmallTex, ent.position, col);
@@ -558,9 +557,7 @@ static void drawMap3EntitiesLit(sf::RenderWindow& window,
             }
             // Last resort: draw animated spike
             else if (hasSpikes) {
-                sf::Sprite s(gSpikesFullTex,
-                    sf::IntRect({ gSpikeAnimFrame * SPIKE_FW, 0 },
-                        { SPIKE_FW, spikeFrameH }));
+                sf::Sprite s(gSpikesFullTex);
                 float scaleY = MAP3_TILE_SIZE / (float)spikeFrameH;
                 float scaleX = MAP3_TILE_SIZE / (float)SPIKE_FW;
                 s.setScale({ scaleX, scaleY });
@@ -2167,7 +2164,7 @@ int main()
                         gTorchFrameCount = std::max(1, (int)(gTorchFullTex.getSize().x / TORCH_FW));
                         gTorchAnimTimer = 0.f; gTorchAnimFrame = 0;
                         // Load saw spritesheet
-                        gSawFullTex.loadFromFile("Sprites/Saw.png");
+                        gSawFullTex.loadFromFile("Sprites/Saw.png", true, IntRect({0,0},{32,32}));
                         gSawFrameCount = std::max(1, (int)(gSawFullTex.getSize().x / SAW_FW));
                         gSawAnimTimer = 0.f; gSawAnimFrame = 0;
                         loadM3Tex(52, "Sprites/rock_1.png");
@@ -2301,7 +2298,7 @@ int main()
                                     loadM3Tex2(4, "Sprites/StoneBrick.png");
                                     loadM3Tex2(5, "Sprites/StoneBrickBack.png");
                                     loadM3Tex2(6, "Sprites/Torch.png");
-                                    loadM3Tex2(7, "Sprites/Saw.png");
+                                    loadM3Tex2(7, "Sprites/Saw.png", IntRect({ 0,0 }, { 32,32 }));
                                     loadM3Tex2(18, "Sprites/Spikes.png");
                                     loadM3Tex2(19, "Sprites/SpikesLeft.png");
                                     loadM3Tex2(20, "Sprites/SpikesRight.png");

@@ -411,9 +411,9 @@ public:
         bool useFog = true, bool debugColliders = false)
     {
         drawBackground(window, tileSize, cam, useFog);
-        drawEntities(window, cam, true, useFog, tileSize);
+        //drawEntities(window, cam, true, useFog, tileSize);
         drawTiles(window, tileSize, cam, useFog);
-        drawEntities(window, cam, false, useFog, tileSize);
+        //drawEntities(window, cam, false, useFog, tileSize);
         if (debugColliders) drawColliders(window);
         if (useFog) { buildFog(cam, dynLights); applyFog(window); }
     }

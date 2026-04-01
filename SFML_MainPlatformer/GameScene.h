@@ -127,8 +127,7 @@ public:
 
                 float finalLv = std::max(lv, 0.4f); // как в редакторе
 
-                sf::Sprite s(sawTex,
-                    sf::IntRect(trapAnimFrame * 32, 0, 32, 32));
+                sf::Sprite s(sawTex);
 
                 s.setColor(sf::Color(
                     255 * finalLv,
@@ -162,15 +161,16 @@ public:
         // 2. Фоновые ловушки (ENT_BACKTRAP) — за тайлами
         //    gmap.drawEntities использует gmap.sheet + gmap._trapAnimFrame,
         //    то есть в точности то же, что мап-криейтор.
-        //gmap.drawEntities(window, gameView, /*backOnly=*/true, useFog, tileSize);
+
         drawTraps(window, true);
+        gmap.drawEntities(window, gameView, true, useFog, tileSize);
 
         // 3. Тайлы переднего плана
         gmap.drawTiles(window, tileSize, gameView, useFog);
 
         // 4. Передние ловушки (ENT_TRAP) — между тайлами и персонажами
-        //gmap.drawEntities(window, gameView, /*backOnly=*/false, useFog, tileSize);
         drawTraps(window, false);
+        gmap.drawEntities(window, gameView, false, useFog, tileSize);
 
         // 5. Враги
         for (auto& e : enemies) {
@@ -220,8 +220,8 @@ private:
             { 5,  "Sprites/StoneBrickBack.png"},
             { 8,  "Sprites/SmallSpike.png"    },
             { 9,  "Sprites/spikes.png"        },
-            { 10, "Sprites/Spikes_3.png"      },
-            { 11, "Sprites/Spikes_4.png"      },
+            { 10, "Sprites/Spikes 3.png"      },
+            { 11, "Sprites/Spikes 4.png"      },
         };
         for (auto& d : defs) {
             gmap.textures[d.id] = sf::Texture();
@@ -241,7 +241,7 @@ private:
         // Пила — грузим ПОЛНЫЙ стрип (64x32) для анимации кадров.
         // _trapAnimFrame управляет текущим кадром (0 или 1, каждый 32x32).
         gmap.textures[7] = sf::Texture();
-        if (gmap.textures[7].loadFromFile("Sprites/Saw.png")) {
+        if (gmap.textures[7].loadFromFile("Sprites/Saw.png", true, sf::IntRect({ 0,0 }, { 32,32 }))) {
             // Сохраняем полную текстуру в gmap_sawTex для drawEntities
             gmap.gmap_sawTex = gmap.textures[7];
             //gmap.sheet.insert_or_assign(7, sf::Sprite(gmap.textures[7]));

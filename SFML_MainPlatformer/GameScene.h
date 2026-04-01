@@ -17,6 +17,10 @@
 
 class GameScene {
 public:
+    sf::Texture sawTex;
+
+    int trapAnimFrame = 0;
+    float trapAnimTimer = 0.f;
     GameMap   gmap;
     Player* player = nullptr;
     std::vector<Enemy> enemies;
@@ -66,6 +70,15 @@ public:
     void update(float dt, sf::View& gameView, sf::RenderWindow& window) {
         if (!player) return;
 
+        trapAnimTimer += dt;
+        if (trapAnimTimer >= 0.1f) {
+            trapAnimTimer = 0.f;
+            trapAnimFrame = (trapAnimFrame + 1) % 2;
+        }
+
+        // ── Анимация ловушек (пила вращается) ─────────────────────────────────
+        gmap.updateTraps(dt);
+
         // ── Урон от ловушек (только счётчик invul) ────────────────────────────
         TrapSystem::update(dt, gmap);
 
@@ -93,6 +106,52 @@ public:
                 enemies[idx].takeDamage(9999);
     }
 
+    void drawTraps(sf::RenderWindow& window, bool backOnly) {
+        for (auto& e : gmap.entities) {
+
+            // фильтр back/front
+            if (backOnly && e.type != ENT_BACKTRAP) continue;
+            if (!backOnly && e.type != ENT_TRAP) continue;
+
+            int tx = std::clamp((int)(e.position.x / tileSize), 0, GMAP_W - 1);
+            int ty = std::clamp((int)(e.position.y / tileSize), 0, GMAP_H - 1);
+
+            float lv = useFog
+                ? std::clamp(LightConst::TILES_MIN + gmap.getSmoothLight(tx, ty) * 0.65f, 0.f, 1.f)
+                : 1.f;
+
+            sf::Color col(255 * lv, 255 * lv, 255 * lv);
+
+            // ───── ПИЛА ─────
+            if (e.textureId == 7 && sawTex.getSize().x > 0) {
+
+                float finalLv = std::max(lv, 0.4f); // как в редакторе
+
+                sf::Sprite s(sawTex,
+                    sf::IntRect(trapAnimFrame * 32, 0, 32, 32));
+
+                s.setColor(sf::Color(
+                    255 * finalLv,
+                    255 * finalLv,
+                    255 * finalLv
+                ));
+
+                s.setPosition(e.position);
+                window.draw(s);
+            }
+            else {
+                // fallback (кристаллы и т.д.)
+                auto it = gmap.sheet.find(e.textureId);
+                if (it != gmap.sheet.end()) {
+                    it->second.setColor(col);
+                    it->second.setPosition(e.position);
+                    window.draw(it->second);
+                    it->second.setColor(sf::Color::White);
+                }
+            }
+        }
+    }
+
     // Рендер — ТОЧНО как в мап-криейторе
     void draw(sf::RenderWindow& window, sf::View& gameView, sf::Font& font) {
         window.setView(gameView);
@@ -103,13 +162,15 @@ public:
         // 2. Фоновые ловушки (ENT_BACKTRAP) — за тайлами
         //    gmap.drawEntities использует gmap.sheet + gmap._trapAnimFrame,
         //    то есть в точности то же, что мап-криейтор.
-        gmap.drawEntities(window, gameView, /*backOnly=*/true, useFog, tileSize);
+        //gmap.drawEntities(window, gameView, /*backOnly=*/true, useFog, tileSize);
+        drawTraps(window, true);
 
         // 3. Тайлы переднего плана
         gmap.drawTiles(window, tileSize, gameView, useFog);
 
         // 4. Передние ловушки (ENT_TRAP) — между тайлами и персонажами
-        gmap.drawEntities(window, gameView, /*backOnly=*/false, useFog, tileSize);
+        //gmap.drawEntities(window, gameView, /*backOnly=*/false, useFog, tileSize);
+        drawTraps(window, false);
 
         // 5. Враги
         for (auto& e : enemies) {
@@ -177,12 +238,14 @@ private:
             spriteSheet.insert_or_assign(6, sf::Sprite(gmap.textures[6]));
         }
 
-        // Пила — обрезаем до 32x32 (левая половина), точно как в мап-криейторе:
-        // tx_Saw.loadFromFile("Sprites/Saw.png", true, IntRect({ 0,0 }, { 32, 32 }));
+        // Пила — грузим ПОЛНЫЙ стрип (64x32) для анимации кадров.
+        // _trapAnimFrame управляет текущим кадром (0 или 1, каждый 32x32).
         gmap.textures[7] = sf::Texture();
-        if (gmap.textures[7].loadFromFile("Sprites/Saw.png", true, sf::IntRect({ 0, 0 }, { 32, 32 }))) {
-            gmap.sheet.insert_or_assign(7, sf::Sprite(gmap.textures[7]));
-            spriteSheet.insert_or_assign(7, sf::Sprite(gmap.textures[7]));
+        if (gmap.textures[7].loadFromFile("Sprites/Saw.png")) {
+            // Сохраняем полную текстуру в gmap_sawTex для drawEntities
+            gmap.gmap_sawTex = gmap.textures[7];
+            //gmap.sheet.insert_or_assign(7, sf::Sprite(gmap.textures[7]));
+            //spriteSheet.insert_or_assign(7, sf::Sprite(gmap.textures[7]));
         }
     }
 };

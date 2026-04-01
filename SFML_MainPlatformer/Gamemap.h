@@ -127,11 +127,17 @@ public:
             }
 
             if (ok) {
-                // id=7 (Saw): только левая 32x32 — точно как в мап-криейторе
-                // tx_Saw.loadFromFile("Sprites/Saw.png", true, IntRect({0,0},{32,32}));
-                if (id == 7 || id == 6) {
+                // id=7 (Saw): грузим ПОЛНЫЙ стрип (64x32) для анимации.
+                // id=6 (Torch): только первый кадр 32x32 — как в мап-криейторе.
+                if (id == 6) {
                     textures[id] = sf::Texture();
                     textures[id].loadFromFile(path, true, sf::IntRect({ 0, 0 }, { 32, 32 }));
+                }
+                else if (id == 7) {
+                    // Saw: полный стрип → анимируем через _trapAnimFrame
+                    gmap_sawTex = sf::Texture();
+                    gmap_sawTex.loadFromFile(path);
+                    textures[id] = gmap_sawTex;
                 }
                 sheet.insert_or_assign(id, sf::Sprite(textures[id]));
                 ++loaded;
@@ -324,6 +330,8 @@ public:
     }
 
     // ── Отрисовка энтити (не-врагов) — точно как в мап-криейторе ────────────
+    // backOnly=true  → ENT_BACKTRAP (за тайлами)
+    // backOnly=false → всё остальное кроме ENT_ENEMY и ENT_BACKTRAP (перед тайлами)
     void drawEntities(sf::RenderWindow& window, const sf::View& cam, bool backOnly,
         bool useLightTint = true, float tileSize = 32.f) {
         sf::Vector2f tl = cam.getCenter() - cam.getSize() / 2.f;
@@ -334,56 +342,51 @@ public:
             if (e.textureId < 0)     continue;
             if (e.type == ENT_ENEMY) continue;
 
-            bool isBack = (e.type == ENT_BACKTRAP) || (e.textureId == 7);
+            bool isBack = (e.type == ENT_BACKTRAP);
             if (backOnly != isBack) continue;
 
-            auto it = sheet.find(e.textureId);
-            if (it == sheet.end())   continue;
-
-            // КОПИЯ — не трогаем оригинал в sheet, иначе позиция/цвет накапливаются
-            sf::Sprite spr = it->second;
-            auto texSize = spr.getTexture().getSize();
-            spr.setTextureRect(sf::IntRect({ 0, 0 }, { (int)texSize.x, (int)texSize.y }));
-            spr.setScale({ tileSize / (float)texSize.x, tileSize / (float)texSize.y });
-            if (e.textureId == 7) {
-                spr.setTextureRect(sf::IntRect({ 0, 0 }, { 32, 32 }));
-                spr.setScale({ 1.f, 1.f }); // пила уже 32x32, не масштабируем
-            }
-            // Пила (id=7): текстура уже загружена обрезанной до {0,0,32,32}
-            // в loadTextures / _loadDefaultTextures — ничего дополнительно не делаем,
-            // sprite уже содержит правильный textureRect из конструктора.
-            // (Предыдущий код брал half = sz.x/2 = 16 от уже-32px текстуры → баг.)
-
-            // Frustum culling по tileSize — независимо от размера текстуры
-            // (важно для spikes.png 64x27 и других нестандартных спрайтов)
+            // Frustum culling
             if (e.position.x + tileSize < tl.x || e.position.x > br.x) continue;
             if (e.position.y + tileSize < tl.y || e.position.y > br.y) continue;
 
+            bool isSaw = (e.textureId == 7);
+
+            // ── Пила: берём полный stрип из gmap_sawTex, анимируем кадром ───
+            if (isSaw) {
+                if (gmap_sawTex.getSize().x == 0) continue; // текстура не загружена
+                sf::Sprite spr(gmap_sawTex);
+                int frameX = _trapAnimFrame * 32;
+                spr.setTextureRect(sf::IntRect({ frameX, 0 }, { 32, 32 }));
+                spr.setScale({ 1.f, 1.f });
+                spr.setPosition(e.position);
+                _applyLight(spr, e, tileSize, useLightTint);
+                window.draw(spr);
+                continue;
+            }
+
+            // ── Все остальные (шипы, кристаллы, факелы, декорации) ──────────
+            auto it = sheet.find(e.textureId);
+            if (it == sheet.end()) continue;
+
+            // Копия спрайта — не трогаем оригинал в sheet
+            sf::Sprite spr = it->second;
+            sf::Vector2u texSize = spr.getTexture().getSize();
+            if (texSize.x == 0 || texSize.y == 0) continue;
+
+            spr.setTextureRect(sf::IntRect({ 0, 0 },
+                { (int)texSize.x, (int)texSize.y }));
+
+            // Масштаб: вписываем в tileSize×tileSize
+            spr.setScale({ tileSize / (float)texSize.x,
+                           tileSize / (float)texSize.y });
+
+            // Шипы/кристаллы (id 8-11): выравниваем по нижнему краю тайла.
+            // Текстура шипов уже, чем tileSize → после scale она занимает
+            // ровно tileSize по высоте, поэтому смещение не нужно.
+            // Позиция — верхний левый угол тайла (как в мап-криейторе).
             spr.setPosition(e.position);
 
-            if (e.type == ENT_BACKTRAP || e.textureId == 8 || e.textureId == 9 ||
-                e.textureId == 10 || e.textureId == 11) {
-                auto tex = spr.getTexture();
-                if (tex) {
-                    float texH = (float)tex->getSize().y;
-                    float offsetY = tileSize - texH;
-                    spr.move(0.f, offsetY);
-                }
-            }
-
-            if (useLightTint) {
-                // Центр энтити — берём середину тайла (tileSize/2)
-                int tx = std::clamp((int)((e.position.x + tileSize * 0.5f) / tileSize), 0, GMAP_W - 1);
-                int ty = std::clamp((int)((e.position.y + tileSize * 0.5f) / tileSize), 0, GMAP_H - 1);
-                float lv = std::max(getSmoothLight(tx, ty), e.light);
-                lv = std::clamp(LightConst::TILES_MIN + lv * 0.9f, 0.f, 1.f);
-                uint8_t b = (uint8_t)(lv * 255.f);
-                spr.setColor({ b, b, b, 255 });
-            }
-            else {
-                spr.setColor(sf::Color::White);
-            }
-
+            _applyLight(spr, e, tileSize, useLightTint);
             window.draw(spr);
         }
     }
@@ -466,10 +469,54 @@ public:
         return pos;
     }
 
+    // ── Анимация пилы (id=7) ──────────────────────────────────────────────────
+    // Пила в Saw.png — горизонтальный стрип (каждый кадр 32x32).
+    // Вызывать updateTraps(dt) каждый кадр из GameScene::update().
+    int   _trapAnimFrame = 0;
+    float _trapAnimTimer = 0.f;
+    static constexpr float SAW_FRAME_SPD = 0.06f; // секунд на кадр
+    static constexpr int   SAW_FRAME_CNT = 2;      // в Saw.png 2 кадра (левая/правая 32px)
+
+    // Загружает пилу как стрип (все кадры) — вызывается из _loadDefaultTextures / loadTextures.
+    // При необходимости можно вызвать вручную.
+    void _reloadSawTexture(const std::string& path = "Sprites/Saw.png") {
+        gmap_sawTex.loadFromFile(path);
+        // sprite для sheet создаётся в updateTraps при первом кадре
+        if (gmap_sawTex.getSize().x > 0) {
+            sheet.insert_or_assign(7, sf::Sprite(gmap_sawTex));
+        }
+    }
+    sf::Texture gmap_sawTex; // полная текстура пилы (не обрезанная)
+
+public:
+    // Вызывать каждый кадр — обновляет анимацию пилы
+    void updateTraps(float dt) {
+        _trapAnimTimer += dt;
+        if (_trapAnimTimer >= SAW_FRAME_SPD) {
+            _trapAnimTimer -= SAW_FRAME_SPD;
+            _trapAnimFrame = (_trapAnimFrame + 1) % SAW_FRAME_CNT;
+        }
+    }
+
 private:
     sf::RenderTexture _fogRT;
     unsigned _fogW = 0, _fogH = 0;
     bool     _fogReady = false;
+
+    // Вспомогательный метод: применяет световой тинт к спрайту на основе lightMap
+    void _applyLight(sf::Sprite& spr, const MapEntity& e, float tileSize, bool useLightTint) {
+        if (useLightTint) {
+            int tx = std::clamp((int)((e.position.x + tileSize * 0.5f) / tileSize), 0, GMAP_W - 1);
+            int ty = std::clamp((int)((e.position.y + tileSize * 0.5f) / tileSize), 0, GMAP_H - 1);
+            float lv = std::max(getSmoothLight(tx, ty), e.light);
+            lv = std::clamp(LightConst::TILES_MIN + lv * 0.9f, 0.f, 1.f);
+            uint8_t b = (uint8_t)(lv * 255.f);
+            spr.setColor({ b, b, b, 255 });
+        }
+        else {
+            spr.setColor(sf::Color::White);
+        }
+    }
 
     // Рисует конус света (radial gradient) на _fogRT через BlendAdd
     void _circle(sf::Vector2f sc, float r, sf::Color col) {

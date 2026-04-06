@@ -76,6 +76,10 @@ int   gSpikeAnimFrame = 0;
 const float SPIKE_FRAME_TIME = 0.35f;
 bool gSpikesLoaded = false;
 
+// Custom game background texture (cave/dark)
+sf::Texture gCustomBgTex;
+bool        gCustomBgLoaded = false;
+
 // Multiplayer ghost renderer and send timer
 GhostRenderer ghostRenderer;
 float mpSendTimer = 0.f;
@@ -481,8 +485,14 @@ static void drawMap3Lit(sf::RenderWindow& window, sf::View& cam, bool isBg) {
 
 // Draw map3 entities (coins, torches, finish, saws, spikes) with lighting.
 // Mirrors map creator drawEntities() render order exactly.
+// backOnly=true: only ENT_BACKTRAP (drawn behind tiles)
+// backOnly=false: all other entities (drawn in front of tiles)
+// Draw map3 entities (coins, torches, finish, saws, spikes) with lighting.
+// Mirrors map creator drawEntities() render order exactly.
+// backOnly=true: only ENT_BACKTRAP (drawn behind tiles)
+// backOnly=false: all other entities (drawn in front of tiles)
 static void drawMap3EntitiesLit(sf::RenderWindow& window,
-    std::map<int, sf::Sprite>& spriteSheet)
+    std::map<int, sf::Sprite>& spriteSheet, bool backOnly = false)
 {
     bool hasTorch = (gTorchFullTex.getSize().x > 0);
     bool hasSaw = (gSawFullTex.getSize().x > 0);
@@ -490,21 +500,17 @@ static void drawMap3EntitiesLit(sf::RenderWindow& window,
 
     constexpr int tFW = TORCH_FW, tFH = TORCH_FH;
 
-    // spikes.png: 2 horizontal frames, each SPIKE_FW wide, height = full texture height
     int spikeFrameH = hasSpikes ? (int)gSpikesFullTex.getSize().y : SPIKE_FW;
 
-    // Helper: lighting at entity tile (same formula as map creator foreground)
     auto entLight = [](const MapEntity& ent) -> float {
         int tx = std::clamp((int)(ent.position.x / MAP3_TILE_SIZE), 0, GMAP_W - 1);
         int ty = std::clamp((int)(ent.position.y / MAP3_TILE_SIZE), 0, GMAP_H - 1);
         float sl = getMap3SmoothLight(tx, ty);
         float lv = std::max(sl, ent.light);
-        // Match map creator foreground brightness: tiles_min + lv*0.65
         lv = std::min(LightConst::TILES_MIN + lv * 0.65f, 1.f);
         return lv;
         };
 
-    // Helper: draw a sprite scaled to fit exactly one MAP3_TILE_SIZE cell
     auto drawScaled = [&](sf::Texture& tex, sf::Vector2f pos, sf::Color col) {
         if (tex.getSize().x == 0) return;
         sf::Sprite s(tex);
@@ -515,130 +521,116 @@ static void drawMap3EntitiesLit(sf::RenderWindow& window,
         window.draw(s);
         };
 
-    // ── Pass 1: ENT_BACKTRAP = spikes (drawn BEHIND tiles in map creator) ───────
-    for (const auto& ent : gMap3.entities) {
-        if (ent.type != ENT_BACKTRAP) continue;
+    // ── Pass 1: ENT_BACKTRAP — только когда backOnly=true (за тайлами) ──────
+    if (backOnly)
+        for (const auto& ent : gMap3.entities) {
+            if (ent.type != ENT_BACKTRAP) continue;
 
-        float lv = entLight(ent);
-        sf::Color col((uint8_t)(255 * lv), (uint8_t)(255 * lv), (uint8_t)(255 * lv));
+            float lv = entLight(ent);
+            sf::Color col((uint8_t)(255 * lv), (uint8_t)(255 * lv), (uint8_t)(255 * lv));
 
-        // Pick spike texture by textureId (map creator assigns these IDs)
-        // 18 → spikes.png (animated, 2 frames), 19 → SmallSpike, 20 → Spikes_3, 21 → Spikes_4
-        // If ID unknown, fall back to any loaded spike texture.
-        if (ent.textureId == 18 && hasSpikes) {
-            //// Animated: extract current frame column from the spritesheet
-            //sf::Sprite s(gSpikesFullTex);
-            //// Scale height to tile size, keep pixel-perfect width
-            //float scaleY = MAP3_TILE_SIZE / (float)spikeFrameH;
-            //float scaleX = MAP3_TILE_SIZE / (float)SPIKE_FW;
-            //s.setScale({ scaleX, scaleY });
-            //s.setColor(col);
-            //s.setPosition(ent.position);
-            //window.draw(s);
-            drawScaled(gSpikesFullTex, ent.position, col);
-        }
-        else if (ent.textureId == 19 && gSpikesSmallTex.getSize().x > 0) {
-            drawScaled(gSpikesSmallTex, ent.position, col);
-        }
-        else if (ent.textureId == 20 && gSpikes3Tex.getSize().x > 0) {
-            drawScaled(gSpikes3Tex, ent.position, col);
-        }
-        else if (ent.textureId == 21 && gSpikes4Tex.getSize().x > 0) {
-            drawScaled(gSpikes4Tex, ent.position, col);
-        }
-        else {
-            // Generic fallback: use gMap3.sheet if available
-            auto it = gMap3.sheet.find(ent.textureId);
-            if (it != gMap3.sheet.end()) {
-                it->second.setColor(col);
-                it->second.setPosition(ent.position);
-                window.draw(it->second);
-                it->second.setColor(sf::Color::White);
+            if (ent.textureId == 18 && hasSpikes) {
+                drawScaled(gSpikesFullTex, ent.position, col);
             }
-            // Last resort: draw animated spike
-            else if (hasSpikes) {
-                sf::Sprite s(gSpikesFullTex);
-                float scaleY = MAP3_TILE_SIZE / (float)spikeFrameH;
-                float scaleX = MAP3_TILE_SIZE / (float)SPIKE_FW;
-                s.setScale({ scaleX, scaleY });
-                s.setColor(col);
-                s.setPosition(ent.position);
-                window.draw(s);
+            else if (ent.textureId == 19 && gSpikesSmallTex.getSize().x > 0) {
+                drawScaled(gSpikesSmallTex, ent.position, col);
+            }
+            else if (ent.textureId == 20 && gSpikes3Tex.getSize().x > 0) {
+                drawScaled(gSpikes3Tex, ent.position, col);
+            }
+            else if (ent.textureId == 21 && gSpikes4Tex.getSize().x > 0) {
+                drawScaled(gSpikes4Tex, ent.position, col);
+            }
+            else {
+                auto it = gMap3.sheet.find(ent.textureId);
+                if (it != gMap3.sheet.end()) {
+                    it->second.setColor(col);
+                    it->second.setPosition(ent.position);
+                    window.draw(it->second);
+                    it->second.setColor(sf::Color::White);
+                }
+                else if (hasSpikes) {
+                    sf::Sprite s(gSpikesFullTex);
+                    float scaleY = MAP3_TILE_SIZE / (float)spikeFrameH;
+                    float scaleX = MAP3_TILE_SIZE / (float)SPIKE_FW;
+                    s.setScale({ scaleX, scaleY });
+                    s.setColor(col);
+                    s.setPosition(ent.position);
+                    window.draw(s);
+                }
             }
         }
-    }
 
-    // ── Pass 2: all other front entities ────────────────────────────────────────
-    for (const auto& ent : gMap3.entities) {
-        if (ent.type == ENT_ENEMY)    continue;
-        if (ent.type == ENT_BACKTRAP) continue;
+    // ── Pass 2: все остальные ентити — только когда backOnly=false (перед тайлами) ──
+    if (!backOnly)
+        for (const auto& ent : gMap3.entities) {
+            if (ent.type == ENT_ENEMY)    continue;
+            if (ent.type == ENT_BACKTRAP) continue;
 
-        bool isTorch = (ent.type == ENT_LIGHTELEMENT);
-        bool isSaw = (ent.type == ENT_TRAP);
+            bool isTorch = (ent.type == ENT_LIGHTELEMENT);
+            bool isSaw = (ent.type == ENT_TRAP);
 
-        int sprId = -1;
-        if (ent.type == ENT_FINISH)                                        sprId = 13;
-        else if (ent.type == ENT_SPAWNPOINT || ent.type == ENT_STARTPOINT)      sprId = 12;
-        else if (ent.type == ENT_COIN)                                          sprId = 7;
+            int sprId = -1;
+            if (ent.type == ENT_FINISH)                                          sprId = 13;
+            else if (ent.type == ENT_SPAWNPOINT || ent.type == ENT_STARTPOINT)  sprId = 12;
+            else if (ent.type == ENT_COIN)                                       sprId = 7;
 
-        if (sprId < 0 && !isTorch && !isSaw) continue;
+            if (sprId < 0 && !isTorch && !isSaw) continue;
 
-        float lv = entLight(ent);
-        sf::Color col((uint8_t)(255 * lv), (uint8_t)(255 * lv), (uint8_t)(255 * lv));
+            float lv = entLight(ent);
+            sf::Color col((uint8_t)(255 * lv), (uint8_t)(255 * lv), (uint8_t)(255 * lv));
 
-        if (isTorch && hasTorch) {
-            // Torches are always fully lit (self-illuminating)
-            sf::Sprite torchSpr(gTorchFullTex,
-                sf::IntRect({ gTorchAnimFrame * tFW, 0 }, { tFW, tFH }));
-            torchSpr.setColor(sf::Color::White);
-            torchSpr.setPosition(ent.position);
-            window.draw(torchSpr);
-        }
-        else if (isTorch) {
-            auto it = gMap3.sheet.find(6);
-            if (it != gMap3.sheet.end()) {
-                it->second.setColor(sf::Color::White);
-                it->second.setPosition(ent.position);
-                window.draw(it->second);
-                it->second.setColor(sf::Color::White);
+            if (isTorch && hasTorch) {
+                sf::Sprite torchSpr(gTorchFullTex,
+                    sf::IntRect({ gTorchAnimFrame * tFW, 0 }, { tFW, tFH }));
+                torchSpr.setColor(sf::Color::White);
+                torchSpr.setPosition(ent.position);
+                window.draw(torchSpr);
+            }
+            else if (isTorch) {
+                auto it = gMap3.sheet.find(6);
+                if (it != gMap3.sheet.end()) {
+                    it->second.setColor(sf::Color::White);
+                    it->second.setPosition(ent.position);
+                    window.draw(it->second);
+                    it->second.setColor(sf::Color::White);
+                }
+            }
+            else if (isSaw && hasSaw) {
+                float sawLv = std::max(lv, 0.4f);
+                uint8_t sawB = (uint8_t)(255 * sawLv);
+                sf::Color sawCol(sawB, sawB, sawB);
+                sf::Sprite sawSpr(gSawFullTex,
+                    sf::IntRect({ gSawAnimFrame * SAW_FW, 0 }, { SAW_FW, SAW_FH }));
+                sawSpr.setScale({ 1.f, 1.f });
+                sawSpr.setColor(sawCol);
+                sawSpr.setPosition(ent.position);
+                window.draw(sawSpr);
+            }
+            else if (isSaw) {
+                auto it = gMap3.sheet.find(7);
+                if (it != gMap3.sheet.end()) {
+                    it->second.setColor(col);
+                    it->second.setPosition(ent.position);
+                    window.draw(it->second);
+                    it->second.setColor(sf::Color::White);
+                }
+            }
+            else {
+                auto it = spriteSheet.find(sprId);
+                if (it != spriteSheet.end()) {
+                    auto sz = it->second.getTexture().getSize();
+                    if (sz.x > 0)
+                        it->second.setScale({ MAP3_TILE_SIZE / (float)sz.x,
+                                              MAP3_TILE_SIZE / (float)sz.y });
+                    it->second.setColor(col);
+                    it->second.setPosition(ent.position);
+                    window.draw(it->second);
+                    it->second.setColor(sf::Color::White);
+                    it->second.setScale({ 1.f, 1.f });
+                }
             }
         }
-        else if (isSaw && hasSaw) {
-            // Saw: 2-frame rotation animation. Saws glow a bit (min brightness 0.4)
-            float sawLv = std::max(lv, 0.4f);
-            uint8_t sawB = (uint8_t)(255 * sawLv);
-            sf::Color sawCol(sawB, sawB, sawB);
-            sf::Sprite sawSpr(gSawFullTex,
-                sf::IntRect({ gSawAnimFrame * SAW_FW, 0 }, { SAW_FW, SAW_FH }));
-            sawSpr.setScale({ 1.f, 1.f }); // Saw.png frames are already 32×32
-            sawSpr.setColor(sawCol);
-            sawSpr.setPosition(ent.position);
-            window.draw(sawSpr);
-        }
-        else if (isSaw) {
-            auto it = gMap3.sheet.find(7);
-            if (it != gMap3.sheet.end()) {
-                it->second.setColor(col);
-                it->second.setPosition(ent.position);
-                window.draw(it->second);
-                it->second.setColor(sf::Color::White);
-            }
-        }
-        else {
-            auto it = spriteSheet.find(sprId);
-            if (it != spriteSheet.end()) {
-                auto sz = it->second.getTexture().getSize();
-                if (sz.x > 0)
-                    it->second.setScale({ MAP3_TILE_SIZE / (float)sz.x,
-                                          MAP3_TILE_SIZE / (float)sz.y });
-                it->second.setColor(col);
-                it->second.setPosition(ent.position);
-                window.draw(it->second);
-                it->second.setColor(sf::Color::White);
-                it->second.setScale({ 1.f, 1.f });
-            }
-        }
-    }
 }
 // ──────────────────────────────────────────────────────────────────────────────
 
@@ -824,46 +816,45 @@ void DrawMenuButton(RenderWindow& window, const FloatRect& rect, const string& t
 void DrawMainMenu(RenderWindow& window, Font& font, Vector2i mousePos) {
     window.setView(FIXED_UI_VIEW);
 
-    RectangleShape titleBg({ 560.f, 90.f });
-    titleBg.setPosition({ 320.f, 100.f });
-    titleBg.setFillColor(Color(0, 0, 0, 100));
+    // Полупрозрачная панель под заголовок — прижата к правой половине
+    RectangleShape titleBg({ 480.f, 80.f });
+    titleBg.setPosition({ 600.f, 90.f });
+    titleBg.setFillColor(Color(0, 0, 0, 130));
     window.draw(titleBg);
 
-    Text title(font, "PIXELRUN", 72);
+    Text title(font, "PIXELRUN", 68);
     title.setFillColor(Color::White);
     title.setStyle(Text::Bold);
     title.setOutlineColor(Color(60, 80, 200));
     title.setOutlineThickness(3.f);
-    FloatRect titleBounds = title.getLocalBounds();
-    title.setPosition({ (1200.f - titleBounds.size.x) / 2.f, 108.f });
+    FloatRect tb = title.getLocalBounds();
+    title.setPosition({ 600.f + (480.f - tb.size.x) / 2.f, 98.f });
     window.draw(title);
 
-    const float btnW = 240.f, btnH = 52.f, gap = 14.f;
-    const float col1X = 270.f, col2X = 690.f;
-    const float startY = 250.f;
+    const float btnW = 280.f, btnH = 54.f, gap = 14.f;
+    const float btnX = 840.f - btnW / 2.f;
+    const float startY = 210.f;
 
-    struct Btn { string label; float x, y; };
+    bool loggedIn = ApiClient::instance().player.loggedIn;
+
+    struct Btn { string label; float y; };
     vector<Btn> btns = {
-        { "LEVELS",   col1X, startY },
-        { "SHOP",     col1X, startY + (btnH + gap) },
-        { ApiClient::instance().player.loggedIn ? "ACCOUNT" : "LOGIN",
-            col1X, startY + (btnH + gap) * 2 },
-        { "CREATORS", col2X, startY },
-        { "SETTINGS", col2X, startY + (btnH + gap) },
-        { "QUESTS",   col2X, startY + (btnH + gap) * 2 },
+        { "PLAY",                     startY },
+        { loggedIn ? "ACCOUNT" : "LOGIN", startY + (btnH + gap) },
+        { "SETTINGS",                 startY + (btnH + gap) * 2 },
+        { "CREATORS",                 startY + (btnH + gap) * 3 },
+        { "EXIT",                     startY + (btnH + gap) * 4 + 8.f },
     };
 
     for (auto& b : btns) {
-        FloatRect r({ b.x, b.y }, { btnW, btnH });
+        FloatRect r({ btnX, b.y }, { btnW, btnH });
         DrawMenuButton(window, r, b.label, font, r.contains(Vector2f(mousePos)));
     }
-
-    FloatRect exitRect({ (1200.f - 200.f) / 2.f, startY + (btnH + gap) * 3 + 10.f }, { 200.f, 44.f });
-    DrawMenuButton(window, exitRect, "EXIT", font, exitRect.contains(Vector2f(mousePos)));
 }
 
 void DrawLevelsMenu(RenderWindow& window, Font& font, Vector2i mousePos) {
     window.setView(FIXED_UI_VIEW);
+    bool isAdmin = ApiClient::instance().player.isAdmin;
 
     Text title(font, "LEVELS", 48);
     title.setFillColor(Color::White);
@@ -871,23 +862,45 @@ void DrawLevelsMenu(RenderWindow& window, Font& font, Vector2i mousePos) {
     title.setPosition({ (1200.f - titleBounds.size.x) / 2.f, 120.f });
     window.draw(title);
 
-    FloatRect level1Rect({ 450.f, 250.f }, { 300.f, 50.f });
-    DrawMenuButton(window, level1Rect, "LEVEL 1", font, level1Rect.contains(Vector2f(mousePos)));
+    if (isAdmin) {
+        FloatRect level1Rect({ 450.f, 230.f }, { 300.f, 50.f });
+        DrawMenuButton(window, level1Rect, "LEVEL 1", font, level1Rect.contains(Vector2f(mousePos)));
 
-    FloatRect level2Rect({ 450.f, 320.f }, { 300.f, 50.f });
-    DrawMenuButton(window, level2Rect, "LEVEL 2", font, level2Rect.contains(Vector2f(mousePos)));
+        FloatRect level2Rect({ 450.f, 295.f }, { 300.f, 50.f });
+        DrawMenuButton(window, level2Rect, "LEVEL 2", font, level2Rect.contains(Vector2f(mousePos)));
 
-    FloatRect level3Rect({ 450.f, 390.f }, { 300.f, 50.f });
-    DrawMenuButton(window, level3Rect, "LEVEL 3", font, level3Rect.contains(Vector2f(mousePos)));
+        FloatRect level3Rect({ 450.f, 360.f }, { 300.f, 50.f });
+        DrawMenuButton(window, level3Rect, "LEVEL 3", font, level3Rect.contains(Vector2f(mousePos)));
 
-    FloatRect bestTimesRect({ 450.f, 460.f }, { 300.f, 50.f });
-    DrawMenuButton(window, bestTimesRect, "BEST TIMES", font, bestTimesRect.contains(Vector2f(mousePos)));
+        FloatRect bestTimesRect({ 450.f, 425.f }, { 300.f, 50.f });
+        DrawMenuButton(window, bestTimesRect, "BEST TIMES", font, bestTimesRect.contains(Vector2f(mousePos)));
 
-    FloatRect lobbyRect({ 450.f, 530.f }, { 300.f, 50.f });
-    DrawMenuButton(window, lobbyRect, "MULTIPLAYER", font, lobbyRect.contains(Vector2f(mousePos)));
+        FloatRect lobbyRect({ 450.f, 490.f }, { 300.f, 50.f });
+        DrawMenuButton(window, lobbyRect, "MULTIPLAYER", font, lobbyRect.contains(Vector2f(mousePos)));
 
-    FloatRect backRect({ 450.f, 600.f }, { 300.f, 50.f });
-    DrawMenuButton(window, backRect, "BACK", font, backRect.contains(Vector2f(mousePos)));
+        FloatRect backRect({ 450.f, 560.f }, { 300.f, 50.f });
+        DrawMenuButton(window, backRect, "BACK", font, backRect.contains(Vector2f(mousePos)));
+    }
+    else {
+        // Non-admin: only level 3 available
+        Text hint(font, "Only Level 3 is available", 20);
+        hint.setFillColor(Color(160, 160, 180));
+        FloatRect hb = hint.getLocalBounds();
+        hint.setPosition({ (1200.f - hb.size.x) / 2.f, 215.f });
+        window.draw(hint);
+
+        FloatRect level3Rect({ 450.f, 260.f }, { 300.f, 50.f });
+        DrawMenuButton(window, level3Rect, "LEVEL 3", font, level3Rect.contains(Vector2f(mousePos)));
+
+        FloatRect bestTimesRect({ 450.f, 330.f }, { 300.f, 50.f });
+        DrawMenuButton(window, bestTimesRect, "BEST TIMES", font, bestTimesRect.contains(Vector2f(mousePos)));
+
+        FloatRect lobbyRect({ 450.f, 400.f }, { 300.f, 50.f });
+        DrawMenuButton(window, lobbyRect, "MULTIPLAYER", font, lobbyRect.contains(Vector2f(mousePos)));
+
+        FloatRect backRect({ 450.f, 470.f }, { 300.f, 50.f });
+        DrawMenuButton(window, backRect, "BACK", font, backRect.contains(Vector2f(mousePos)));
+    }
 }
 
 void DrawLobbyMenu(RenderWindow& window, Font& font, Vector2i mousePos, bool connected, int connectedLevel) {
@@ -1097,40 +1110,129 @@ void DrawCreatorsMenu(RenderWindow& window, Font& font, Vector2i mousePos) {
     DrawMenuButton(window, backRect, "BACK", font, backRect.contains(Vector2f(mousePos)));
 }
 
+// Константы хит-зон настроек — используются и при Draw, и при клике
+static constexpr float SET_BTN_X = 360.f;
+static constexpr float SET_BTN_W = 480.f;
+static constexpr float SET_BTN_H = 54.f;
+static constexpr float SET_REMAP_Y = 230.f;
+static constexpr float SET_DASH_Y = 330.f;   // 230+54+46 — гарантированный зазор
+static constexpr float SET_BACK_Y = 440.f;   // 330+54+56
+static constexpr float SET_BACK_X = 450.f;
+static constexpr float SET_BACK_W = 300.f;
+
 void DrawSettingsMenu(RenderWindow& window, Font& font, Vector2i mousePos, Keyboard::Key attackKey, bool waitingForRemap, bool limitedDash) {
     window.setView(FIXED_UI_VIEW);
 
-    Text title(font, "SETTINGS", 48);
-    title.setFillColor(Color::White);
+    // ── Тёмная панель ─────────────────────────────────────────────────────────
+    RectangleShape panel({ 600.f, 380.f });
+    panel.setPosition({ 300.f, 110.f });
+    panel.setFillColor(Color(8, 6, 4, 215));
+    window.draw(panel);
+
+    // Золотая рамка
+    for (int i = 0; i < 2; ++i) {
+        RectangleShape border({ 600.f - i * 4.f, 380.f - i * 4.f });
+        border.setPosition({ 300.f + i * 2.f, 110.f + i * 2.f });
+        border.setFillColor(Color::Transparent);
+        border.setOutlineColor(i == 0 ? Color(130, 110, 60, 200) : Color(80, 65, 30, 120));
+        border.setOutlineThickness(1.5f);
+        window.draw(border);
+    }
+
+    // Верхний акцент-полоска
+    RectangleShape topBar({ 600.f, 4.f });
+    topBar.setPosition({ 300.f, 110.f });
+    topBar.setFillColor(Color(190, 160, 80));
+    window.draw(topBar);
+
+    // ── Заголовок ─────────────────────────────────────────────────────────────
+    Text title(font, "SETTINGS", 46);
+    title.setFillColor(Color(235, 218, 160));
+    title.setOutlineColor(Color(40, 30, 10, 220));
+    title.setOutlineThickness(2.5f);
     FloatRect titleBounds = title.getLocalBounds();
-    title.setPosition({ (1200.f - titleBounds.size.x) / 2.f, 120.f });
+    title.setPosition({ 300.f + (600.f - titleBounds.size.x) / 2.f, 122.f });
     window.draw(title);
 
-    string keyText = "KEY OF ATTACK: " + keyToString(attackKey);
-    FloatRect remapRect({ 450.f - 90.f, 250.f }, { 480.f, 50.f });
+    // Разделитель
+    RectangleShape div({ 520.f, 1.f });
+    div.setPosition({ 340.f, 185.f });
+    div.setFillColor(Color(100, 85, 45, 140));
+    window.draw(div);
+
+    // ── Кнопка 1: клавиша атаки ───────────────────────────────────────────────
+    string keyText = "ATTACK KEY:  [ " + keyToString(attackKey) + " ]";
+    FloatRect remapRect({ SET_BTN_X, SET_REMAP_Y }, { SET_BTN_W, SET_BTN_H });
     DrawMenuButton(window, remapRect, keyText, font, remapRect.contains(Vector2f(mousePos)));
 
-    string dashText = "DASH MODE: " + string(limitedDash ? "LIMITED" : "UNLIMITED");
-    FloatRect dashRect({ 450.f - 90.f , 320.f }, { 480.f, 50.f });
+    // ── Кнопка 2: режим даша (y строго = SET_DASH_Y, выше хит-зоны не заходит)
+    string dashText = "DASH:  " + string(limitedDash ? "LIMITED  (1/jump)" : "UNLIMITED");
+    FloatRect dashRect({ SET_BTN_X, SET_DASH_Y }, { SET_BTN_W, SET_BTN_H });
     DrawMenuButton(window, dashRect, dashText, font, dashRect.contains(Vector2f(mousePos)));
 
-    FloatRect backRect({ 450.f, 510.f }, { 300.f, 50.f });
+    // ── Кнопка BACK ───────────────────────────────────────────────────────────
+    FloatRect backRect({ SET_BACK_X, SET_BACK_Y }, { SET_BACK_W, SET_BTN_H });
     DrawMenuButton(window, backRect, "BACK", font, backRect.contains(Vector2f(mousePos)));
 
+    // ── Auth бейдж — в правом нижнем углу панели ─────────────────────────────
+    bool loggedIn = ApiClient::instance().player.loggedIn;
+    string authStr = loggedIn
+        ? (ApiClient::instance().player.username + "  |  "
+            + to_string(ApiClient::instance().player.coins) + " coins")
+        : "! Not logged in";
+    Text authTxt(font, authStr, 14);
+    FloatRect ab = authTxt.getLocalBounds();
+    // Центр по кнопкам: SET_BTN_X=360, SET_BTN_W=480 → центр x=600
+    float badgeTx = 600.f - ab.size.x / 2.f;
+    float badgeTy = 196.f;
+    if (!loggedIn) {
+        // Тёмная подложка
+        float padH = 5.f, padV = 3.f;
+        RectangleShape badgeBg({ ab.size.x + padH * 2.f, ab.size.y + padV * 2.f });
+        badgeBg.setPosition({ badgeTx - padH, badgeTy - padV });
+        badgeBg.setFillColor(Color(15, 8, 3, 210));
+        badgeBg.setOutlineColor(Color(160, 110, 30, 200));
+        badgeBg.setOutlineThickness(1.5f);
+        window.draw(badgeBg);
+        authTxt.setFillColor(Color(255, 195, 60, 240));
+        authTxt.setOutlineColor(Color(40, 20, 0, 200));
+        authTxt.setOutlineThickness(1.5f);
+    }
+    else {
+        authTxt.setFillColor(Color(120, 220, 120, 200));
+    }
+    authTxt.setPosition({ badgeTx, badgeTy });
+    window.draw(authTxt);
+
+    // ── Оверлей ремаппинга ────────────────────────────────────────────────────
     if (waitingForRemap) {
-        RectangleShape overlay({ 600.f, 200.f });
-        overlay.setPosition({ 300.f, 300.f });
-        overlay.setFillColor(Color(0, 0, 0, 200));
+        RectangleShape overlay({ 1200.f, 800.f });
+        overlay.setPosition({ 0.f, 0.f });
+        overlay.setFillColor(Color(0, 0, 0, 170));
         window.draw(overlay);
 
-        Text prompt(font, "ENTER ANY KEY...", 24);
-        prompt.setFillColor(Color::White);
-        FloatRect bounds = prompt.getLocalBounds();
-        prompt.setPosition({
-            300.f + (600.f - bounds.size.x) / 2.f,
-            300.f + (200.f - bounds.size.y) / 2.f
-            });
+        RectangleShape box({ 500.f, 150.f });
+        box.setPosition({ 350.f, 325.f });
+        box.setFillColor(Color(12, 10, 6, 245));
+        window.draw(box);
+        RectangleShape boxTop({ 500.f, 4.f });
+        boxTop.setPosition({ 350.f, 325.f });
+        boxTop.setFillColor(Color(190, 160, 80));
+        window.draw(boxTop);
+
+        Text prompt(font, "PRESS ANY KEY TO BIND", 28);
+        prompt.setFillColor(Color(235, 218, 160));
+        prompt.setOutlineColor(Color(30, 22, 8, 200));
+        prompt.setOutlineThickness(2.f);
+        FloatRect pb = prompt.getLocalBounds();
+        prompt.setPosition({ 350.f + (500.f - pb.size.x) / 2.f, 365.f });
         window.draw(prompt);
+
+        Text sub(font, "ESC  to cancel", 15);
+        sub.setFillColor(Color(130, 115, 80, 200));
+        FloatRect sb = sub.getLocalBounds();
+        sub.setPosition({ 350.f + (500.f - sb.size.x) / 2.f, 415.f });
+        window.draw(sub);
     }
 }
 
@@ -1535,33 +1637,41 @@ void DrawLoginMenu(RenderWindow& window, Font& font, Vector2i mousePos,
         title.setOutlineColor(Color(50, 42, 28, 220));
         title.setOutlineThickness(3.f);
         FloatRect tb = title.getLocalBounds();
-        title.setPosition({ (1200.f - tb.size.x) / 2.f, 95.f });
+        title.setPosition({ (1200.f - tb.size.x) / 2.f, 80.f });
         window.draw(title);
 
         auto& p = ApiClient::instance().player;
 
-        std::vector<std::pair<std::string, std::string>> info = {
-            { "Username:", p.username },
-            { "Coins:",    std::to_string(p.coins) },
+        // Инфо-блок
+        struct Row { string label; string value; };
+        vector<Row> rows = {
+            { "Username:", p.username.size() > 20 ? p.username.substr(0,20) + "..." : p.username },
+            { "Coins:",    to_string(p.coins) },
             { "Skin:",     p.equippedPlayerSkin },
         };
-
-        float y = 220.f;
-        for (auto& [label, value] : info) {
-            Text lbl(font, label, 22);
+        float infoY = 175.f;
+        for (auto& r : rows) {
+            Text lbl(font, r.label, 20);
             lbl.setFillColor(Color(180, 170, 140));
-            lbl.setPosition({ 380.f, y });
+            lbl.setPosition({ 380.f, infoY });
             window.draw(lbl);
-
-            Text val(font, value, 22);
+            Text val(font, r.value, 20);
             val.setFillColor(Color(240, 228, 190));
-            val.setPosition({ 560.f, y });
+            val.setPosition({ 560.f, infoY });
             window.draw(val);
-
-            y += 50.f;
+            infoY += 42.f;
         }
 
-        FloatRect backBtn({ 450.f, 490.f }, { 300.f, 48.f });
+        // Кнопки действий
+        const float bW = 260.f, bH = 48.f, bGap = 12.f;
+        const float bX = (1200.f - bW) / 2.f;
+        float bY = 360.f;
+        FloatRect shopBtn({ bX, bY }, { bW, bH });
+        FloatRect questsBtn({ bX, bY + bH + bGap }, { bW, bH });
+        FloatRect backBtn({ bX, bY + (bH + bGap) * 2 + 8.f }, { bW, bH });
+
+        DrawMenuButton(window, shopBtn, "SHOP", font, shopBtn.contains(Vector2f(mousePos)));
+        DrawMenuButton(window, questsBtn, "QUESTS", font, questsBtn.contains(Vector2f(mousePos)));
         DrawMenuButton(window, backBtn, "BACK", font, backBtn.contains(Vector2f(mousePos)));
         return;
     }
@@ -1756,6 +1866,105 @@ void DrawShopMenu(RenderWindow& window, Font& font, Vector2i mousePos,
     DrawMenuButton(window, backBtn, "BACK", font, backBtn.contains(Vector2f(mousePos)));
 }
 
+static void drawCustomGameBg(sf::RenderWindow& window, const sf::View& cam)
+{
+    int bgChoice = ApiClient::instance().player.selectedBackground;
+    if (bgChoice == 0) return;
+
+    // Lazy-load once
+    if (!gCustomBgLoaded) {
+        gCustomBgLoaded = true;
+        bool ok = gCustomBgTex.loadFromFile("Sprites/menu_background2.jpg");
+        if (!ok) gCustomBgTex.loadFromFile("Sprites/MENU1.png");
+    }
+
+    sf::Vector2f tl = cam.getCenter() - cam.getSize() / 2.f;
+
+    if (gCustomBgTex.getSize().x == 0) {
+        sf::RectangleShape bg(cam.getSize());
+        bg.setPosition(tl);
+        bg.setFillColor(sf::Color(18, 14, 22));
+        window.draw(bg);
+        return;
+    }
+
+    // Статичная картинка — растянута на весь экран камеры, не скроллится
+    sf::Sprite spr(gCustomBgTex);
+    sf::Vector2f camSize = cam.getSize();
+    float scaleX = camSize.x / (float)gCustomBgTex.getSize().x;
+    float scaleY = camSize.y / (float)gCustomBgTex.getSize().y;
+    spr.setScale({ scaleX, scaleY });
+    spr.setPosition(tl);
+    spr.setColor(sf::Color(160, 160, 160));
+    window.draw(spr);
+
+    /*
+    // Перезагружаем текстуру при смене фона
+    static int lastBgChoice = -1;
+    if (lastBgChoice != bgChoice) {
+        lastBgChoice = bgChoice;
+        gCustomBgLoaded = false;
+        gCustomBgTex = sf::Texture();
+    }
+
+    if (!gCustomBgLoaded) {
+        gCustomBgLoaded = true;
+        if (bgChoice == 1) {
+            bool ok = gCustomBgTex.loadFromFile("Sprites/menu_background2.jpg");
+            if (!ok) gCustomBgTex.loadFromFile("Sprites/background.png");
+        }
+        else {
+            bool ok = gCustomBgTex.loadFromFile("Sprites/cave_bg.jpg");
+            if (!ok) ok = gCustomBgTex.loadFromFile("Sprites/background.png");
+            if (ok) gCustomBgTex.setRepeated(true);
+        }
+    }
+
+    sf::Color colors[] = {
+        sf::Color::Transparent,
+        sf::Color(18, 14, 22),
+        sf::Color(10, 14, 28),
+        sf::Color(30, 26, 22),
+        sf::Color(8, 20, 8),
+    };
+
+    if (gCustomBgTex.getSize().x == 0) {
+        sf::Color fillCol = (bgChoice < 5) ? colors[bgChoice] : colors[1];
+        sf::RectangleShape bg(cam.getSize());
+        bg.setPosition(tl);
+        bg.setFillColor(fillCol);
+        window.draw(bg);
+        return;
+    }
+
+    if (bgChoice == 1) {
+        sf::Sprite spr(gCustomBgTex);
+        sf::Vector2f camSize = cam.getSize();
+        float scaleX = camSize.x / (float)gCustomBgTex.getSize().x;
+        float scaleY = camSize.y / (float)gCustomBgTex.getSize().y;
+        spr.setScale({ scaleX, scaleY });
+        spr.setPosition(tl);
+        spr.setColor(sf::Color(160, 160, 160));
+        window.draw(spr);
+    }
+    else {
+        float tw = (float)gCustomBgTex.getSize().x;
+        float th = (float)gCustomBgTex.getSize().y;
+        sf::Vector2f br = cam.getCenter() + cam.getSize() / 2.f;
+        int x0 = (int)(tl.x / tw), x1 = (int)(br.x / tw) + 1;
+        int y0 = (int)(tl.y / th), y1 = (int)(br.y / th) + 1;
+        uint8_t dim = (bgChoice == 2) ? 60 : (bgChoice == 3) ? 100 : 130;
+        sf::Sprite spr(gCustomBgTex);
+        spr.setColor(sf::Color(dim, dim, dim));
+        for (int ty = y0; ty <= y1; ++ty)
+            for (int tx = x0; tx <= x1; ++tx) {
+                spr.setPosition({ tx * tw, ty * th });
+                window.draw(spr);
+            }
+    }
+    */
+}
+
 static void drawEnemiesLit(sf::RenderWindow& window,
     std::vector<Enemy>& enemies, bool debugMode = false)
 {
@@ -1916,7 +2125,8 @@ int main()
 
     bool waitingForRemap = false;
     Texture menuBgTexture;
-    bool hasMenuBg = menuBgTexture.loadFromFile("Sprites/MENU1.png");
+    bool hasMenuBg = menuBgTexture.loadFromFile("Sprites/menu_background2.jpg");
+    if (!hasMenuBg) hasMenuBg = menuBgTexture.loadFromFile("Sprites/MENU1.png");
     float menuBgOffset = 0.f;
     const float MENU_SCROLL_SPEED = 50.f;
 
@@ -2041,232 +2251,317 @@ int main()
                 Vector2f mouse = Vector2f(window.mapPixelToCoords(mp, FIXED_UI_VIEW));
 
                 if (gameState == MAIN_MENU) {
-                    const float btnW = 240.f, btnH = 52.f, gap = 14.f;
-                    const float col1X = 270.f, col2X = 690.f, startY = 250.f;
+                    const float btnW = 280.f, btnH = 54.f, gap = 14.f;
+                    const float btnX = 840.f - btnW / 2.f;
+                    const float startY = 210.f;
+                    bool loggedIn = ApiClient::instance().player.loggedIn;
 
-                    FloatRect levels({ col1X, startY }, { btnW, btnH });
-                    FloatRect shop({ col1X, startY + (btnH + gap) }, { btnW, btnH });
-                    FloatRect loginBtn({ col1X, startY + (btnH + gap) * 2 }, { btnW, btnH });
-                    FloatRect creators({ col2X, startY }, { btnW, btnH });
-                    FloatRect settings({ col2X, startY + (btnH + gap) }, { btnW, btnH });
-                    FloatRect questsBtn({ col2X, startY + (btnH + gap) * 2 }, { btnW, btnH });
-                    FloatRect exitBtn({ (1200.f - 200.f) / 2.f, startY + (btnH + gap) * 3 + 10.f }, { 200.f, 44.f });
+                    FloatRect play({ btnX, startY }, { btnW, btnH });
+                    FloatRect loginBtn({ btnX, startY + (btnH + gap) }, { btnW, btnH });
+                    FloatRect settings({ btnX, startY + (btnH + gap) * 2 }, { btnW, btnH });
+                    FloatRect creators({ btnX, startY + (btnH + gap) * 3 }, { btnW, btnH });
+                    FloatRect exitBtn({ btnX, startY + (btnH + gap) * 4 + 8.f }, { btnW, btnH });
 
-                    if (levels.contains(mouse))    gameState = LEVELS_MENU;
-                    else if (creators.contains(mouse))  gameState = CREATORS_MENU;
-                    else if (settings.contains(mouse))  gameState = SETTINGS_MENU;
-                    else if (exitBtn.contains(mouse))   window.close();
+                    if (play.contains(mouse))      gameState = LEVELS_MENU;
+                    else if (settings.contains(mouse)) gameState = SETTINGS_MENU;
+                    else if (creators.contains(mouse)) gameState = CREATORS_MENU;
+                    else if (exitBtn.contains(mouse))  window.close();
                     else if (loginBtn.contains(mouse)) {
                         loginEmail = ""; loginPassword = ""; loginError = "";
                         loginEmailActive = false; loginPasswordActive = false;
                         ApiClient::instance().status = ApiStatus::Idle;
                         gameState = LOGIN_MENU;
                     }
-                    else if (shop.contains(mouse)) {
-                        shopSkins.clear(); shopLoaded = false; shopMessage = "";
-                        gameState = SHOP_MENU;
-                        ApiClient::instance().getShopAsync([&shopSkins, &shopLoaded](std::vector<ApiSkin> s) {
-                            shopSkins = s;
-                            ApiClient::instance().cachedSkins = s;
-                            shopLoaded = true;
-                            });
-                    }
-                    else if (questsBtn.contains(mouse)) {
-                        gameState = QUESTS_MENU;
-                        if (ApiClient::instance().player.loggedIn) {
-                            quests.clear(); questsLoaded = false;
-                            ApiClient::instance().getQuestsAsync([&quests, &questsLoaded](std::vector<ApiQuest> q) {
-                                quests = q; questsLoaded = true;
-                                });
-                        }
-                    }
                 }
                 else if (gameState == LEVELS_MENU) {
-                    FloatRect level1({ 450.f, 250.f }, { 300.f, 50.f });
-                    FloatRect level2({ 450.f, 320.f }, { 300.f, 50.f });
-                    FloatRect level3({ 450.f, 390.f }, { 300.f, 50.f });
-                    FloatRect bestTimes({ 450.f, 460.f }, { 300.f, 50.f });
-                    FloatRect lobby({ 450.f, 530.f }, { 300.f, 50.f });
-                    FloatRect back({ 450.f, 600.f }, { 300.f, 50.f });
+                    bool isAdmin = ApiClient::instance().player.isAdmin;
 
-                    if (level1.contains(mouse)) {
-                        currentLevel = 1;
-                        gUsingMap3 = false;
-                        gameState = PLAYING;
-                        initializeLevel(currentLevel, mobTemplate, enemies, tx_Slime, tx_SlimeMan, player);
-                        player.reset();
-                        player.setLimitedDashMode(limitedDashMode);
-                        time = 0.f; levelCompleted = false;
-                        finalTime = 0.f; finalCoins = 0; finalKills = 0;
-                        StartdoorPosition = Vector2f(3600.f, 0.f);
-                        EnddoorPosition = Vector2f(3651.f, 0.f);
-                        if (ApiClient::instance().player.loggedIn)
+                    // Helper lambda: redirect to login if not logged in
+                    auto requireLogin = [&]() -> bool {
+                        if (!ApiClient::instance().player.loggedIn) {
+                            loginEmail = ""; loginPassword = ""; loginError = "Please login to play.";
+                            loginEmailActive = false; loginPasswordActive = false;
+                            gameState = LOGIN_MENU;
+                            return false;
+                        }
+                        return true;
+                        };
+
+                    if (isAdmin) {
+                        FloatRect level1({ 450.f, 230.f }, { 300.f, 50.f });
+                        FloatRect level2({ 450.f, 295.f }, { 300.f, 50.f });
+                        FloatRect level3({ 450.f, 360.f }, { 300.f, 50.f });
+                        FloatRect bestTimes({ 450.f, 425.f }, { 300.f, 50.f });
+                        FloatRect lobby({ 450.f, 490.f }, { 300.f, 50.f });
+                        FloatRect back({ 450.f, 560.f }, { 300.f, 50.f });
+
+                        if (level1.contains(mouse) && requireLogin()) {
+                            currentLevel = 1; gUsingMap3 = false;
+                            gameState = PLAYING;
+                            initializeLevel(currentLevel, mobTemplate, enemies, tx_Slime, tx_SlimeMan, player);
+                            player.reset(); player.setLimitedDashMode(limitedDashMode);
+                            time = 0.f; levelCompleted = false;
+                            finalTime = 0.f; finalCoins = 0; finalKills = 0;
+                            StartdoorPosition = Vector2f(3600.f, 0.f);
+                            EnddoorPosition = Vector2f(3651.f, 0.f);
                             MultiplayerClient::instance().connect("localhost", 5001,
                                 ApiClient::instance().player.token, ApiClient::instance().player.username);
-                    }
-                    else if (level2.contains(mouse)) {
-                        currentLevel = 2;
-                        gUsingMap3 = false;
-                        gameState = PLAYING;
-                        initializeLevel(currentLevel, mobTemplate, enemies, tx_Slime, tx_SlimeMan, player);
-                        player.reset();
-                        player.setLimitedDashMode(limitedDashMode);
-                        time = 0.f; levelCompleted = false;
-                        finalTime = 0.f; finalCoins = 0; finalKills = 0;
-                        StartdoorPosition = Vector2f(4400.f, 0.f);
-                        EnddoorPosition = Vector2f(4444.f, 0.f);
-                        if (ApiClient::instance().player.loggedIn)
+                        }
+                        else if (level2.contains(mouse) && requireLogin()) {
+                            currentLevel = 2; gUsingMap3 = false;
+                            gameState = PLAYING;
+                            initializeLevel(currentLevel, mobTemplate, enemies, tx_Slime, tx_SlimeMan, player);
+                            player.reset(); player.setLimitedDashMode(limitedDashMode);
+                            time = 0.f; levelCompleted = false;
+                            finalTime = 0.f; finalCoins = 0; finalKills = 0;
+                            StartdoorPosition = Vector2f(4400.f, 0.f);
+                            EnddoorPosition = Vector2f(4444.f, 0.f);
                             MultiplayerClient::instance().connect("localhost", 5001,
                                 ApiClient::instance().player.token, ApiClient::instance().player.username);
-                    }
-                    else if (level3.contains(mouse)) {
-                        currentLevel = 3;
-                        gUsingMap3 = true;
-                        gMap3 = GameMap();
-                        gMap3.load("Map3.bin");
-                        gMap3.textures.clear();
-                        gMap3.sheet.clear();
-                        // Load textures matching map creator tile IDs exactly
-                        auto loadM3Tex = [&](int id, const std::string& path,
-                            sf::IntRect crop = sf::IntRect()) {
-                                gMap3.textures[id] = sf::Texture();
-                                bool ok = (crop.size.x > 0 && crop.size.y > 0)
-                                    ? gMap3.textures[id].loadFromFile(path, false, crop)
-                                    : gMap3.textures[id].loadFromFile(path);
-                                if (!ok) std::cout << "[Map3] WARN: " << path << "\n";
-                                else     std::cout << "[Map3] OK tile " << id << " <- " << path << "\n";
-                            };
-                        loadM3Tex(0, "Sprites/Undefined.png");
-                        loadM3Tex(1, "Sprites/rock_6.png");
-                        loadM3Tex(2, "Sprites/slime 2.png", sf::IntRect({ 16, 16 }, { 32, 32 }));
-                        loadM3Tex(3, "Sprites/background.png");
-                        loadM3Tex(4, "Sprites/StoneBrick.png");
-                        loadM3Tex(5, "Sprites/StoneBrickBack.png");
-                        loadM3Tex(6, "Sprites/Torch.png");
-                        loadM3Tex(7, "Sprites/Saw.png");
-                        // Spike textures for ENT_BACKTRAP entities
-                        // Use the new high-quality spike sprites
-                        loadM3Tex(18, "Sprites/spikes.png");       // animated floor spikes
-                        loadM3Tex(19, "Sprites/SmallSpike.png");   // small spike variant
-                        loadM3Tex(20, "Sprites/Spikes_3.png");     // spike variant 3
-                        loadM3Tex(21, "Sprites/Spikes_4.png");     // spike variant 4
-                        if (!gSpikesLoaded) {
-                            gSpikesLoaded = true;
-                            gSpikesFullTex.loadFromFile("Sprites/spikes.png");
-                            gSpikeFrameCount = std::max(1, (int)(gSpikesFullTex.getSize().x / SPIKE_FW));
-                            gSpikesSmallTex.loadFromFile("Sprites/SmallSpike.png");
-                            gSpikes3Tex.loadFromFile("Sprites/Spikes_3.png");
-                            gSpikes4Tex.loadFromFile("Sprites/Spikes_4.png");
-                            gSpikeAnimTimer = 0.f; gSpikeAnimFrame = 0;
                         }
-                        // Load full torch spritesheet for animation
-                        gTorchFullTex.loadFromFile("Sprites/Torch.png");
-                        gTorchFrameCount = std::max(1, (int)(gTorchFullTex.getSize().x / TORCH_FW));
-                        gTorchAnimTimer = 0.f; gTorchAnimFrame = 0;
-                        // Load saw spritesheet
-                        gSawFullTex.loadFromFile("Sprites/Saw.png", true, IntRect({0,0},{32,32}));
-                        gSawFrameCount = std::max(1, (int)(gSawFullTex.getSize().x / SAW_FW));
-                        gSawAnimTimer = 0.f; gSawAnimFrame = 0;
-                        loadM3Tex(52, "Sprites/rock_1.png");
-                        loadM3Tex(53, "Sprites/rock_2.png");
-                        loadM3Tex(54, "Sprites/rock_3.png");
-                        loadM3Tex(55, "Sprites/rock_4.png");
-                        loadM3Tex(56, "Sprites/rock_5.png");
-                        loadM3Tex(57, "Sprites/rock_6.png");
-                        loadM3Tex(58, "Sprites/rock_1.png");
-                        loadM3Tex(59, "Sprites/rock_2.png");
-                        loadM3Tex(60, "Sprites/rock_3.png");
-
-                        // Build sprite sheet with scale normalised to MAP3_TILE_SIZE (32px)
-                        for (auto& [id, tx] : gMap3.textures) {
-                            sf::Sprite spr(tx);
-                            auto sz = tx.getSize();
-                            if (sz.x > 0 && sz.y > 0)
-                                spr.setScale({ MAP3_TILE_SIZE / (float)sz.x,
-                                               MAP3_TILE_SIZE / (float)sz.y });
-                            gMap3.sheet.emplace(id, spr);
-                        }
-
-                        memset(MAP, -1, sizeof(MAP));
-                        memset(MobMAP, -1, sizeof(MobMAP));
-                        memset(InterestingMAP, -1, sizeof(InterestingMAP));
-                        memset(BackgroundMAP, -1, sizeof(BackgroundMAP));
-
-                        GMP::buildMapFromColliders<MAP3_H, MAP3_W>(MAP3_TILES, gMap3, 32.f);
-
-                        float mapMinX = 0.f, mapMaxX = 9999.f, mapMinY = 0.f, mapMaxY = 9999.f;
-                        if (!gMap3.colliders.empty()) {
-                            mapMinX = gMap3.colliders[0].x;
-                            mapMaxX = gMap3.colliders[0].x + gMap3.colliders[0].width;
-                            mapMinY = gMap3.colliders[0].y;
-                            mapMaxY = gMap3.colliders[0].y + gMap3.colliders[0].height;
-                            for (auto& col : gMap3.colliders) {
-                                mapMinX = std::min(mapMinX, col.x);
-                                mapMaxX = std::max(mapMaxX, col.x + col.width);
-                                mapMinY = std::min(mapMinY, col.y);
-                                mapMaxY = std::max(mapMaxY, col.y + col.height);
+                        else if (level3.contains(mouse) && requireLogin()) {
+                            currentLevel = 3;
+                            gUsingMap3 = true;
+                            gMap3 = GameMap();
+                            gMap3.load("Map3.bin");
+                            gMap3.textures.clear();
+                            gMap3.sheet.clear();
+                            // Load textures matching map creator tile IDs exactly
+                            auto loadM3Tex = [&](int id, const std::string& path,
+                                sf::IntRect crop = sf::IntRect()) {
+                                    gMap3.textures[id] = sf::Texture();
+                                    bool ok = (crop.size.x > 0 && crop.size.y > 0)
+                                        ? gMap3.textures[id].loadFromFile(path, false, crop)
+                                        : gMap3.textures[id].loadFromFile(path);
+                                    if (!ok) std::cout << "[Map3] WARN: " << path << "\n";
+                                    else     std::cout << "[Map3] OK tile " << id << " <- " << path << "\n";
+                                };
+                            loadM3Tex(0, "Sprites/Undefined.png");
+                            loadM3Tex(1, "Sprites/rock_6.png");
+                            loadM3Tex(2, "Sprites/slime 2.png", sf::IntRect({ 16, 16 }, { 32, 32 }));
+                            loadM3Tex(3, "Sprites/background.png");
+                            loadM3Tex(4, "Sprites/StoneBrick.png");
+                            loadM3Tex(5, "Sprites/StoneBrickBack.png");
+                            loadM3Tex(6, "Sprites/Torch.png");
+                            loadM3Tex(7, "Sprites/Saw.png");
+                            // Spike textures for ENT_BACKTRAP entities
+                            // Use the new high-quality spike sprites
+                            loadM3Tex(18, "Sprites/spikes.png");       // animated floor spikes
+                            loadM3Tex(19, "Sprites/SmallSpike.png");   // small spike variant
+                            loadM3Tex(20, "Sprites/Spikes_3.png");     // spike variant 3
+                            loadM3Tex(21, "Sprites/Spikes_4.png");     // spike variant 4
+                            if (!gSpikesLoaded) {
+                                gSpikesLoaded = true;
+                                gSpikesFullTex.loadFromFile("Sprites/spikes.png");
+                                gSpikeFrameCount = std::max(1, (int)(gSpikesFullTex.getSize().x / SPIKE_FW));
+                                gSpikesSmallTex.loadFromFile("Sprites/SmallSpike.png");
+                                gSpikes3Tex.loadFromFile("Sprites/Spikes_3.png");
+                                gSpikes4Tex.loadFromFile("Sprites/Spikes_4.png");
+                                gSpikeAnimTimer = 0.f; gSpikeAnimFrame = 0;
                             }
-                        }
-                        // Сохраняем реальные размеры для зажима камеры
-                        gMap3WorldW = mapMaxX + 200.f;
-                        gMap3WorldH = mapMaxY + 200.f;
+                            // Load full torch spritesheet for animation
+                            gTorchFullTex.loadFromFile("Sprites/Torch.png");
+                            gTorchFrameCount = std::max(1, (int)(gTorchFullTex.getSize().x / TORCH_FW));
+                            gTorchAnimTimer = 0.f; gTorchAnimFrame = 0;
+                            // Load saw spritesheet (full 64x32 = 2 frames of 32x32)
+                            gSawFullTex.loadFromFile("Sprites/Saw.png");
+                            gSawFrameCount = std::max(1, (int)(gSawFullTex.getSize().x / SAW_FW));
+                            gSawAnimTimer = 0.f; gSawAnimFrame = 0;
+                            loadM3Tex(52, "Sprites/rock_1.png");
+                            loadM3Tex(53, "Sprites/rock_2.png");
+                            loadM3Tex(54, "Sprites/rock_3.png");
+                            loadM3Tex(55, "Sprites/rock_4.png");
+                            loadM3Tex(56, "Sprites/rock_5.png");
+                            loadM3Tex(57, "Sprites/rock_6.png");
+                            loadM3Tex(58, "Sprites/rock_1.png");
+                            loadM3Tex(59, "Sprites/rock_2.png");
+                            loadM3Tex(60, "Sprites/rock_3.png");
 
-                        enemies.clear();
-                        for (auto& ent : gMap3.entities) {
-                            if (ent.type != ENT_ENEMY) continue;
-                            if (ent.textureId < 0) continue;
-                            if (ent.position.x <= 0.f || ent.position.y <= 0.f) continue;
-                            if (ent.position.x < mapMinX || ent.position.x > mapMaxX ||
-                                ent.position.y < mapMinY || ent.position.y > mapMaxY) continue;
-                            float footY = ent.position.y + MAP3_TILE_SIZE;
-                            bool hasGround = false;
-                            for (auto& col : gMap3.colliders) {
-                                bool xOk = ent.position.x + MAP3_TILE_SIZE * 0.8f > col.x &&
-                                    ent.position.x + MAP3_TILE_SIZE * 0.2f < col.x + col.width;
-                                bool yOk = footY >= col.y - MAP3_TILE_SIZE &&
-                                    footY <= col.y + 4.f;
-                                if (xOk && yOk) { hasGround = true; break; }
+                            // Build sprite sheet with scale normalised to MAP3_TILE_SIZE (32px)
+                            for (auto& [id, tx] : gMap3.textures) {
+                                sf::Sprite spr(tx);
+                                auto sz = tx.getSize();
+                                if (sz.x > 0 && sz.y > 0)
+                                    spr.setScale({ MAP3_TILE_SIZE / (float)sz.x,
+                                                   MAP3_TILE_SIZE / (float)sz.y });
+                                gMap3.sheet.emplace(id, spr);
                             }
-                            if (!hasGround) continue;
-                            sf::Texture& tex = (ent.textureId == 9) ? tx_SlimeMan : tx_Slime;
-                            enemies.emplace_back(ent.position.x, ent.position.y, tex, MAP3_TILE_SIZE);
-                            enemies.back().initFromMapEntity(ent.health, ent.damage, ent.speed, ent.light);
-                        }
-                        for (auto& e : enemies) e.loadAnimations("Sprites/slime_walk.png", "Sprites/slime_attack.png");
-                        calculateMap3Light();
 
-                        auto spawn = gMap3.getSafeSpawn(30.f, 40.f);
-                        float playerH = 40.f;
-                        float bestFloor = spawn.y;
-                        for (auto& col : gMap3.colliders) {
-                            if (spawn.x + 30.f > col.x && spawn.x < col.x + col.width) {
-                                if (col.y >= spawn.y && col.y < bestFloor + 200.f) {
-                                    bestFloor = col.y;
+                            memset(MAP, -1, sizeof(MAP));
+                            memset(MobMAP, -1, sizeof(MobMAP));
+                            memset(InterestingMAP, -1, sizeof(InterestingMAP));
+                            memset(BackgroundMAP, -1, sizeof(BackgroundMAP));
+
+                            GMP::buildMapFromColliders<MAP3_H, MAP3_W>(MAP3_TILES, gMap3, 32.f);
+
+                            float mapMinX = 0.f, mapMaxX = 9999.f, mapMinY = 0.f, mapMaxY = 9999.f;
+                            if (!gMap3.colliders.empty()) {
+                                mapMinX = gMap3.colliders[0].x;
+                                mapMaxX = gMap3.colliders[0].x + gMap3.colliders[0].width;
+                                mapMinY = gMap3.colliders[0].y;
+                                mapMaxY = gMap3.colliders[0].y + gMap3.colliders[0].height;
+                                for (auto& col : gMap3.colliders) {
+                                    mapMinX = std::min(mapMinX, col.x);
+                                    mapMaxX = std::max(mapMaxX, col.x + col.width);
+                                    mapMinY = std::min(mapMinY, col.y);
+                                    mapMaxY = std::max(mapMaxY, col.y + col.height);
                                 }
                             }
+                            // Сохраняем реальные размеры для зажима камеры
+                            gMap3WorldW = mapMaxX + 200.f;
+                            gMap3WorldH = mapMaxY + 200.f;
+
+                            enemies.clear();
+                            for (auto& ent : gMap3.entities) {
+                                if (ent.type != ENT_ENEMY) continue;
+                                if (ent.textureId < 0) continue;
+                                if (ent.position.x <= 0.f || ent.position.y <= 0.f) continue;
+                                if (ent.position.x < mapMinX || ent.position.x > mapMaxX ||
+                                    ent.position.y < mapMinY || ent.position.y > mapMaxY) continue;
+                                float footY = ent.position.y + MAP3_TILE_SIZE;
+                                bool hasGround = false;
+                                for (auto& col : gMap3.colliders) {
+                                    bool xOk = ent.position.x + MAP3_TILE_SIZE * 0.8f > col.x &&
+                                        ent.position.x + MAP3_TILE_SIZE * 0.2f < col.x + col.width;
+                                    bool yOk = footY >= col.y - MAP3_TILE_SIZE &&
+                                        footY <= col.y + 4.f;
+                                    if (xOk && yOk) { hasGround = true; break; }
+                                }
+                                if (!hasGround) continue;
+                                sf::Texture& tex = (ent.textureId == 9) ? tx_SlimeMan : tx_Slime;
+                                enemies.emplace_back(ent.position.x, ent.position.y, tex, MAP3_TILE_SIZE);
+                                enemies.back().initFromMapEntity(ent.health, ent.damage, ent.speed, ent.light);
+                            }
+                            for (auto& e : enemies) e.loadAnimations("Sprites/slime_walk.png", "Sprites/slime_attack.png");
+                            calculateMap3Light();
+
+                            auto spawn = gMap3.getSafeSpawn(30.f, 40.f);
+                            float playerH = 40.f;
+                            float bestFloor = spawn.y;
+                            for (auto& col : gMap3.colliders) {
+                                if (spawn.x + 30.f > col.x && spawn.x < col.x + col.width) {
+                                    if (col.y >= spawn.y && col.y < bestFloor + 200.f) {
+                                        bestFloor = col.y;
+                                    }
+                                }
+                            }
+                            if (bestFloor != spawn.y)
+                                spawn.y = bestFloor - playerH;
+                            player.setSpawnPoint(spawn.x, spawn.y);
+                            player.reset();
+                            player.setLimitedDashMode(limitedDashMode);
+                            view1 = View(FloatRect({ 0.f, 0.f }, { 1200.f, 800.f }));
+                            view1.setCenter(spawn);
+                            gameState = PLAYING;
+                            time = 0.f; levelCompleted = false;
+                            finalTime = 0.f; finalCoins = 0; finalKills = 0;
+                            enteringDoor = false;
+                            sf::Vector2f fin = gMap3.getFinishPoint();
+                            StartdoorPosition = fin;
+                            EnddoorPosition = { fin.x + MAP3_TILE_SIZE, fin.y + MAP3_TILE_SIZE };
                         }
-                        if (bestFloor != spawn.y)
-                            spawn.y = bestFloor - playerH;
-                        player.setSpawnPoint(spawn.x, spawn.y);
-                        player.reset();
-                        player.setLimitedDashMode(limitedDashMode);
-                        view1 = View(FloatRect({ 0.f, 0.f }, { 1200.f, 800.f }));
-                        view1.setCenter(spawn);
-                        gameState = PLAYING;
-                        time = 0.f; levelCompleted = false;
-                        finalTime = 0.f; finalCoins = 0; finalKills = 0;
-                        enteringDoor = false;
-                        sf::Vector2f fin = gMap3.getFinishPoint();
-                        StartdoorPosition = fin;
-                        EnddoorPosition = { fin.x + MAP3_TILE_SIZE, fin.y + MAP3_TILE_SIZE };
+                        else if (bestTimes.contains(mouse)) { gameState = BEST_TIMES_MENU; }
+                        else if (lobby.contains(mouse)) { gameState = LOBBY_MENU; }
+                        else if (back.contains(mouse)) { gameState = MAIN_MENU; }
                     }
-                    else if (bestTimes.contains(mouse)) {
-                        gameState = BEST_TIMES_MENU;
+                    else {
+                        // Non-admin: only level 3 available
+                        FloatRect level3({ 450.f, 260.f }, { 300.f, 50.f });
+                        FloatRect bestTimes({ 450.f, 330.f }, { 300.f, 50.f });
+                        FloatRect lobby({ 450.f, 400.f }, { 300.f, 50.f });
+                        FloatRect back({ 450.f, 470.f }, { 300.f, 50.f });
+
+                        if (level3.contains(mouse)) {
+                            if (!ApiClient::instance().player.loggedIn) {
+                                loginEmail = ""; loginPassword = ""; loginError = "Please login to play.";
+                                loginEmailActive = false; loginPasswordActive = false;
+                                gameState = LOGIN_MENU;
+                            }
+                            else {
+                                currentLevel = 3;
+                                gUsingMap3 = true;
+                                gMap3 = GameMap();
+                                gMap3.load("Map3.bin");
+                                gMap3.textures.clear(); gMap3.sheet.clear();
+                                auto loadNA = [&](int id, const std::string& path, sf::IntRect crop = sf::IntRect()) {
+                                    gMap3.textures[id] = sf::Texture();
+                                    bool ok2 = (crop.size.x > 0 && crop.size.y > 0)
+                                        ? gMap3.textures[id].loadFromFile(path, false, crop)
+                                        : gMap3.textures[id].loadFromFile(path);
+                                    if (!ok2) std::cout << "[Map3] WARN: " << path << "\n";
+                                    };
+                                loadNA(0, "Sprites/Undefined.png"); loadNA(1, "Sprites/rock_6.png");
+                                loadNA(2, "Sprites/slime 2.png", sf::IntRect({ 16,16 }, { 32,32 }));
+                                loadNA(3, "Sprites/background.png"); loadNA(4, "Sprites/StoneBrick.png");
+                                loadNA(5, "Sprites/StoneBrickBack.png"); loadNA(6, "Sprites/Torch.png");
+                                loadNA(7, "Sprites/Saw.png"); loadNA(18, "Sprites/spikes.png");
+                                loadNA(19, "Sprites/SmallSpike.png"); loadNA(20, "Sprites/Spikes_3.png");
+                                loadNA(21, "Sprites/Spikes_4.png");
+                                if (!gSpikesLoaded) {
+                                    gSpikesLoaded = true;
+                                    gSpikesFullTex.loadFromFile("Sprites/spikes.png");
+                                    gSpikeFrameCount = std::max(1, (int)(gSpikesFullTex.getSize().x / SPIKE_FW));
+                                    gSpikesSmallTex.loadFromFile("Sprites/SmallSpike.png");
+                                    gSpikes3Tex.loadFromFile("Sprites/Spikes_3.png");
+                                    gSpikes4Tex.loadFromFile("Sprites/Spikes_4.png");
+                                }
+                                gTorchFullTex.loadFromFile("Sprites/Torch.png");
+                                gTorchFrameCount = std::max(1, (int)(gTorchFullTex.getSize().x / TORCH_FW));
+                                gSawFullTex.loadFromFile("Sprites/Saw.png");
+                                gSawFrameCount = std::max(1, (int)(gSawFullTex.getSize().x / SAW_FW));
+                                for (int ri = 52;ri <= 60;ri++) loadNA(ri, "Sprites/rock_" + std::to_string((ri - 51) % 6 + 1) + ".png");
+                                for (auto& [id, tx] : gMap3.textures) {
+                                    sf::Sprite spr(tx); auto sz = tx.getSize();
+                                    if (sz.x > 0 && sz.y > 0) spr.setScale({ MAP3_TILE_SIZE / (float)sz.x,MAP3_TILE_SIZE / (float)sz.y });
+                                    gMap3.sheet.emplace(id, spr);
+                                }
+                                memset(MAP, -1, sizeof(MAP)); memset(MobMAP, -1, sizeof(MobMAP));
+                                memset(InterestingMAP, -1, sizeof(InterestingMAP)); memset(BackgroundMAP, -1, sizeof(BackgroundMAP));
+                                GMP::buildMapFromColliders<MAP3_H, MAP3_W>(MAP3_TILES, gMap3, 32.f);
+                                float rMinX = 0.f, rMaxX = 9999.f, rMinY = 0.f, rMaxY = 9999.f;
+                                if (!gMap3.colliders.empty()) {
+                                    rMinX = gMap3.colliders[0].x; rMaxX = gMap3.colliders[0].x + gMap3.colliders[0].width;
+                                    rMinY = gMap3.colliders[0].y; rMaxY = gMap3.colliders[0].y + gMap3.colliders[0].height;
+                                    for (auto& col : gMap3.colliders) {
+                                        rMinX = std::min(rMinX, col.x); rMaxX = std::max(rMaxX, col.x + col.width);
+                                        rMinY = std::min(rMinY, col.y); rMaxY = std::max(rMaxY, col.y + col.height);
+                                    }
+                                    gMap3WorldW = rMaxX + 200.f; gMap3WorldH = rMaxY + 200.f;
+                                }
+                                enemies.clear();
+                                for (auto& ent : gMap3.entities) {
+                                    if (ent.type != ENT_ENEMY || ent.textureId < 0 || ent.position.x <= 0.f) continue;
+                                    float footY = ent.position.y + MAP3_TILE_SIZE; bool hasG = false;
+                                    for (auto& col : gMap3.colliders) {
+                                        if (ent.position.x + MAP3_TILE_SIZE * 0.8f > col.x && ent.position.x + MAP3_TILE_SIZE * 0.2f < col.x + col.width
+                                            && footY >= col.y - MAP3_TILE_SIZE && footY <= col.y + 4.f) {
+                                            hasG = true;break;
+                                        }
+                                    }
+                                    if (!hasG) continue;
+                                    sf::Texture& tex = (ent.textureId == 9) ? tx_SlimeMan : tx_Slime;
+                                    enemies.emplace_back(ent.position.x, ent.position.y, tex, MAP3_TILE_SIZE);
+                                    enemies.back().initFromMapEntity(ent.health, ent.damage, ent.speed, ent.light);
+                                }
+                                for (auto& e : enemies) e.loadAnimations("Sprites/slime_walk.png", "Sprites/slime_attack.png");
+                                calculateMap3Light();
+                                auto spawn = gMap3.getSafeSpawn(30.f, 40.f);
+                                player.setSpawnPoint(spawn.x, spawn.y);
+                                player.reset(); player.setLimitedDashMode(limitedDashMode);
+                                view1 = View(FloatRect({ 0.f,0.f }, { 1200.f,800.f })); view1.setCenter(spawn);
+                                sf::Vector2f fin2 = gMap3.getFinishPoint();
+                                StartdoorPosition = fin2; EnddoorPosition = { fin2.x + MAP3_TILE_SIZE,fin2.y + MAP3_TILE_SIZE };
+                                time = 0.f; levelCompleted = false; finalTime = 0.f; finalCoins = 0; finalKills = 0;
+                                enteringDoor = false;
+                                MultiplayerClient::instance().connect("localhost", 5001,
+                                    ApiClient::instance().player.token, ApiClient::instance().player.username);
+                                gameState = PLAYING;
+                            }
+                        }
+                        else if (bestTimes.contains(mouse)) { gameState = BEST_TIMES_MENU; }
+                        else if (lobby.contains(mouse)) { gameState = LOBBY_MENU; }
+                        else if (back.contains(mouse)) { gameState = MAIN_MENU; }
                     }
-                    else if (lobby.contains(mouse)) {
-                        gameState = LOBBY_MENU;
-                    }
-                    else if (back.contains(mouse)) gameState = MAIN_MENU;
                 }
                 else if (gameState == LOBBY_MENU) {
                     FloatRect backBtn({ 450.f, 580.f }, { 300.f, 48.f });
@@ -2298,7 +2593,7 @@ int main()
                                     loadM3Tex2(4, "Sprites/StoneBrick.png");
                                     loadM3Tex2(5, "Sprites/StoneBrickBack.png");
                                     loadM3Tex2(6, "Sprites/Torch.png");
-                                    loadM3Tex2(7, "Sprites/Saw.png", IntRect({ 0,0 }, { 32,32 }));
+                                    loadM3Tex2(7, "Sprites/Saw.png");
                                     loadM3Tex2(18, "Sprites/Spikes.png");
                                     loadM3Tex2(19, "Sprites/SpikesLeft.png");
                                     loadM3Tex2(20, "Sprites/SpikesRight.png");
@@ -2391,9 +2686,9 @@ int main()
                     if (back.contains(mouse)) gameState = MAIN_MENU;
                 }
                 else if (gameState == SETTINGS_MENU) {
-                    FloatRect remap({ 450.f - 90.f, 250.f }, { 480.f, 50.f });
-                    FloatRect dashToggle({ 450.f - 90.f , 320.f }, { 480.f, 50.f });
-                    FloatRect back({ 450.f, 510.f }, { 300.f, 50.f });
+                    FloatRect remap({ SET_BTN_X, SET_REMAP_Y }, { SET_BTN_W, SET_BTN_H });
+                    FloatRect dashToggle({ SET_BTN_X, SET_DASH_Y }, { SET_BTN_W, SET_BTN_H });
+                    FloatRect back({ SET_BACK_X, SET_BACK_Y }, { SET_BACK_W, SET_BTN_H });
 
                     if (remap.contains(mouse)) {
                         waitingForRemap = true;
@@ -2422,47 +2717,77 @@ int main()
                     }
                 }
                 else if (gameState == LOGIN_MENU) {
-                    FloatRect emailBox({ 400.f, 220.f }, { 400.f, 45.f });
-                    FloatRect passBox({ 400.f, 290.f }, { 400.f, 45.f });
-                    FloatRect loginBtn({ 400.f, 360.f }, { 190.f, 45.f });
-                    FloatRect regBtn({ 610.f, 360.f }, { 190.f, 45.f });
-                    FloatRect backBtn({ 450.f, 500.f }, { 300.f, 50.f });
+                    if (ApiClient::instance().player.loggedIn) {
+                        // Аккаунт-страница (когда залогинен)
+                        const float bW = 260.f, bH = 48.f, bGap = 12.f;
+                        const float bX = (1200.f - bW) / 2.f;
+                        float bY = 360.f;
+                        FloatRect shopBtn({ bX, bY }, { bW, bH });
+                        FloatRect questsBtn({ bX, bY + bH + bGap }, { bW, bH });
+                        FloatRect backBtn({ bX, bY + (bH + bGap) * 2 + 8.f }, { bW, bH });
 
-                    if (emailBox.contains(mouse)) {
-                        loginEmailActive = true; loginPasswordActive = false;
+                        if (shopBtn.contains(mouse)) {
+                            shopSkins.clear(); shopLoaded = false; shopMessage = "";
+                            gameState = SHOP_MENU;
+                            ApiClient::instance().getShopAsync([&shopSkins, &shopLoaded](std::vector<ApiSkin> s) {
+                                shopSkins = s;
+                                ApiClient::instance().cachedSkins = s;
+                                shopLoaded = true;
+                                });
+                        }
+                        else if (questsBtn.contains(mouse)) {
+                            gameState = QUESTS_MENU;
+                            quests.clear(); questsLoaded = false;
+                            ApiClient::instance().getQuestsAsync([&quests, &questsLoaded](std::vector<ApiQuest> q) {
+                                quests = q; questsLoaded = true;
+                                });
+                        }
+                        else if (backBtn.contains(mouse)) gameState = MAIN_MENU;
                     }
-                    else if (passBox.contains(mouse)) {
-                        loginEmailActive = false; loginPasswordActive = true;
-                    }
-                    else if (loginBtn.contains(mouse)) {
-                        if (loginEmail.empty() || loginPassword.empty()) {
-                            loginError = "Please enter email and password.";
+                    else {
+                        // Форма логина (когда не залогинен)
+                        FloatRect emailBox({ 400.f, 220.f }, { 400.f, 45.f });
+                        FloatRect passBox({ 400.f, 290.f }, { 400.f, 45.f });
+                        FloatRect loginBtn({ 400.f, 360.f }, { 190.f, 45.f });
+                        FloatRect regBtn({ 610.f, 360.f }, { 190.f, 45.f });
+                        FloatRect backBtn({ 450.f, 500.f }, { 300.f, 50.f });
+
+                        if (emailBox.contains(mouse)) {
+                            loginEmailActive = true; loginPasswordActive = false;
                         }
-                        else {
-                            loginError = "";
-                            ApiClient::instance().loginAsync(loginEmail, loginPassword);
+                        else if (passBox.contains(mouse)) {
+                            loginEmailActive = false; loginPasswordActive = true;
                         }
-                    }
-                    else if (regBtn.contains(mouse)) {
-                        if (loginEmail.empty() || loginPassword.empty()) {
-                            loginError = "Please enter email and password to register.";
+                        else if (loginBtn.contains(mouse)) {
+                            if (loginEmail.empty() || loginPassword.empty()) {
+                                loginError = "Please enter email and password.";
+                            }
+                            else {
+                                loginError = "";
+                                ApiClient::instance().loginAsync(loginEmail, loginPassword);
+                            }
                         }
-                        else if (loginEmail.find('@') == std::string::npos) {
-                            loginError = "Please enter a valid email address.";
+                        else if (regBtn.contains(mouse)) {
+                            if (loginEmail.empty() || loginPassword.empty()) {
+                                loginError = "Please enter email and password to register.";
+                            }
+                            else if (loginEmail.find('@') == std::string::npos) {
+                                loginError = "Please enter a valid email address.";
+                            }
+                            else if (loginPassword.size() < 4) {
+                                loginError = "Password must be at least 4 characters.";
+                            }
+                            else {
+                                std::string username = loginEmail.substr(0, loginEmail.find('@'));
+                                if (username.empty()) username = "player";
+                                loginError = "";
+                                ApiClient::instance().registerAsync(username, loginEmail, loginPassword);
+                            }
                         }
-                        else if (loginPassword.size() < 4) {
-                            loginError = "Password must be at least 4 characters.";
+                        else if (backBtn.contains(mouse)) {
+                            if (ApiClient::instance().status != ApiStatus::Loading)
+                                gameState = MAIN_MENU;
                         }
-                        else {
-                            std::string username = loginEmail.substr(0, loginEmail.find('@'));
-                            if (username.empty()) username = "player";
-                            loginError = "";
-                            ApiClient::instance().registerAsync(username, loginEmail, loginPassword);
-                        }
-                    }
-                    else if (backBtn.contains(mouse)) {
-                        if (ApiClient::instance().status != ApiStatus::Loading)
-                            gameState = MAIN_MENU;
                     }
                 }
                 else if (gameState == QUESTS_MENU) {
@@ -2765,23 +3090,16 @@ int main()
             gameState == BEST_TIMES_MENU || gameState == LOGIN_MENU ||
             gameState == QUESTS_MENU || gameState == SHOP_MENU || gameState == LOBBY_MENU) {
             if (hasMenuBg) {
-                menuBgTexture.setRepeated(true);
+                // Статичный фон — растянуть на весь экран, без скролла
                 Vector2u texSize = menuBgTexture.getSize();
                 Vector2u winSize = window.getSize();
-
-                menuBgOffset += MENU_SCROLL_SPEED * dt;
-                if (menuBgOffset >= (float)texSize.x)
-                    menuBgOffset -= (float)texSize.x;
-
-                int tilesY = (int)std::ceil((float)winSize.y / texSize.y) + 1;
-                for (int ty = 0; ty < tilesY; ++ty) {
-                    Sprite menuBg(menuBgTexture);
-                    menuBg.setTextureRect(IntRect(
-                        { (int)menuBgOffset, ty * (int)texSize.y },
-                        { (int)winSize.x,    (int)texSize.y }));
-                    menuBg.setPosition({ 0.f, ty * (float)texSize.y });
-                    window.draw(menuBg);
-                }
+                Sprite menuBg(menuBgTexture);
+                menuBg.setScale({
+                    (float)winSize.x / (float)texSize.x,
+                    (float)winSize.y / (float)texSize.y
+                    });
+                menuBg.setPosition({ 0.f, 0.f });
+                window.draw(menuBg);
             }
             else {
                 window.clear(Color(20, 20, 40));
@@ -2813,9 +3131,12 @@ int main()
         else if (gameState == PLAYING) {
             window.setView(view1);
             if (gUsingMap3) {
+                if (ApiClient::instance().player.selectedBackground > 0)
+                    drawCustomGameBg(window, view1);
                 drawMap3Lit(window, view1, true);
+                drawMap3EntitiesLit(window, spriteSheet, true);  // ENT_BACKTRAP behind tiles
                 drawMap3Lit(window, view1, false);
-                drawMap3EntitiesLit(window, spriteSheet);
+                drawMap3EntitiesLit(window, spriteSheet, false); // front entities on top
                 if (debugMode) gMap3.drawColliders(window);
             }
             else {
@@ -2866,9 +3187,12 @@ int main()
         if (gameState == PAUSED) {
             window.setView(view1);
             if (gUsingMap3) {
+                if (ApiClient::instance().player.selectedBackground > 0)
+                    drawCustomGameBg(window, view1);
                 drawMap3Lit(window, view1, true);
+                drawMap3EntitiesLit(window, spriteSheet, true);
                 drawMap3Lit(window, view1, false);
-                drawMap3EntitiesLit(window, spriteSheet);
+                drawMap3EntitiesLit(window, spriteSheet, false);
             }
             else {
                 drawBg(window, spriteSheet);
@@ -2891,9 +3215,12 @@ int main()
             }
             window.setView(view1);
             if (gUsingMap3) {
+                if (ApiClient::instance().player.selectedBackground > 0)
+                    drawCustomGameBg(window, view1);
                 drawMap3Lit(window, view1, true);
+                drawMap3EntitiesLit(window, spriteSheet, true);
                 drawMap3Lit(window, view1, false);
-                drawMap3EntitiesLit(window, spriteSheet);
+                drawMap3EntitiesLit(window, spriteSheet, false);
             }
             else {
                 drawBg(window, spriteSheet);
@@ -2980,17 +3307,36 @@ int main()
 
         if (gameState == MAIN_MENU) {
             window.setView(FIXED_UI_VIEW);
-            std::string authStr = ApiClient::instance().player.loggedIn
-                ? ("[ " + ApiClient::instance().player.username + "  |  "
-                    + std::to_string(ApiClient::instance().player.coins) + " coins ]")
-                : "[ Not logged in ]";
-            Text authTxt(font, authStr, 18);
-            authTxt.setFillColor(ApiClient::instance().player.loggedIn
-                ? Color(100, 255, 150) : Color(180, 180, 200));
-            authTxt.setOutlineColor(Color(0, 0, 0, 180));
-            authTxt.setOutlineThickness(1.f);
+            bool _li = ApiClient::instance().player.loggedIn;
+            // Бейдж — прижат к правому краю панели кнопок, не болтается по центру
+            std::string authStr = _li
+                ? (ApiClient::instance().player.username + "  |  "
+                    + std::to_string(ApiClient::instance().player.coins) + " coins")
+                : "! Not logged in";
+            Text authTxt(font, authStr, 15);
             FloatRect ab = authTxt.getLocalBounds();
-            authTxt.setPosition({ (1200.f - ab.size.x) / 2.f, 210.f });
+            const float btnX = 840.f - 280.f / 2.f;
+            // Центр по кнопкам: btnX=700, btnW=280 → центр x=840
+            float badgeTx = 840.f - ab.size.x / 2.f;
+            float badgeTy = 177.f;
+            if (!_li) {
+                float padH = 6.f, padV = 4.f;
+                RectangleShape badgeBg({ ab.size.x + padH * 2.f, ab.size.y + padV * 2.f });
+                badgeBg.setPosition({ badgeTx - padH, badgeTy - padV });
+                badgeBg.setFillColor(Color(15, 8, 3, 215));
+                badgeBg.setOutlineColor(Color(160, 110, 30, 210));
+                badgeBg.setOutlineThickness(1.5f);
+                window.draw(badgeBg);
+                authTxt.setFillColor(Color(255, 195, 60, 245));
+                authTxt.setOutlineColor(Color(40, 20, 0, 210));
+                authTxt.setOutlineThickness(1.5f);
+            }
+            else {
+                authTxt.setFillColor(Color(110, 230, 140, 220));
+                authTxt.setOutlineColor(Color(0, 0, 0, 160));
+                authTxt.setOutlineThickness(1.f);
+            }
+            authTxt.setPosition({ badgeTx, badgeTy });
             window.draw(authTxt);
         }
 

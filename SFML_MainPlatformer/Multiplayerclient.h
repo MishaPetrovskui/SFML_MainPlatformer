@@ -333,7 +333,10 @@ public:
             }
 
             if (_font && !p.username.empty()) {
-                sf::Text label(*_font, p.username, 11);
+                // Обрезаем ник если слишком длинный
+                std::string displayName = p.username;
+                if (displayName.size() > 14) displayName = displayName.substr(0, 12) + "..";
+                sf::Text label(*_font, displayName, 11);
                 label.setFillColor(sf::Color(215, 238, 255, alpha));
                 label.setOutlineColor(sf::Color(0, 0, 0, 210));
                 label.setOutlineThickness(1.5f);

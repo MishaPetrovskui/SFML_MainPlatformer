@@ -22,6 +22,10 @@ struct ApiPlayerInfo {
     std::string equippedBarSkin = "default";
     std::string equippedSlashSkin = "default";
     bool loggedIn = false;
+    bool isAdmin = false;
+    // Настройки клиента (локальные, не хранятся на сервере)
+    int selectedBackground = 0; // 0=default, 1=forest, 2=castle, 3=cave
+    int selectedLevel = 3;      // игрок всегда 3; админ может менять
 };
 
 struct ApiQuest {
@@ -92,6 +96,8 @@ public:
                 player.equippedPlayerSkin = extractStr(resp, "equippedPlayerSkin");
                 player.equippedBarSkin = extractStr(resp, "equippedBarSkin");
                 player.equippedSlashSkin = extractStr(resp, "equippedSlashSkin");
+                player.isAdmin = (resp.find("\"isAdmin\":true") != std::string::npos);
+                player.selectedLevel = player.isAdmin ? 1 : 3;
                 statusMessage = "Welcome, " + player.username + "!";
                 status = ApiStatus::Success;
             }
@@ -191,11 +197,42 @@ public:
             if (resp.empty()) return;
             std::lock_guard<std::mutex> lock(statusMutex);
             int newCoins = extractInt(resp, "coins");
-            if (newCoins != player.coins) {
-                player.coins = newCoins;
-            }
+            if (newCoins != player.coins) player.coins = newCoins;
             std::string newName = extractStr(resp, "username");
             if (!newName.empty()) player.username = newName;
+            player.isAdmin = (resp.find("\"isAdmin\":true") != std::string::npos);
+            }).detach();
+    }
+
+    void updateProfileAsync(const std::string& newUsername, const std::string& newEmail,
+        const std::string& currentPassword, const std::string& newPassword,
+        std::function<void(bool, std::string)> callback)
+    {
+        if (!player.loggedIn) { callback(false, "Not logged in"); return; }
+        std::thread([this, newUsername, newEmail, currentPassword, newPassword, callback]() {
+            std::string body = "{";
+            bool first = true;
+            if (!newUsername.empty()) {
+                body += "\"username\":\"" + newUsername + "\"";
+                first = false;
+            }
+            if (!newEmail.empty()) {
+                if (!first) body += ",";
+                body += "\"email\":\"" + newEmail + "\"";
+                first = false;
+            }
+            if (!newPassword.empty()) {
+                if (!first) body += ",";
+                body += "\"currentPassword\":\"" + currentPassword + "\",\"newPassword\":\"" + newPassword + "\"";
+            }
+            body += "}";
+            std::string resp = request("PATCH", "/api/player/me", body, player.token);
+            bool ok = !resp.empty() && resp.find("error") == std::string::npos;
+            if (ok) {
+                std::lock_guard<std::mutex> lock(statusMutex);
+                if (!newUsername.empty()) player.username = newUsername;
+            }
+            callback(ok, ok ? "" : extractStr(resp, "error"));
             }).detach();
     }
 

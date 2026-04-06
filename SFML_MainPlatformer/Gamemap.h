@@ -330,7 +330,7 @@ public:
     }
 
     // ── Отрисовка энтити (не-врагов) — точно как в мап-криейторе ────────────
-    // backOnly=true  → ENT_BACKTRAP (за тайлами)
+    // backOnly=true  → ТОЛЬКО ENT_BACKTRAP (рисуется за тайлами)
     // backOnly=false → всё остальное кроме ENT_ENEMY и ENT_BACKTRAP (перед тайлами)
     void drawEntities(sf::RenderWindow& window, const sf::View& cam, bool backOnly,
         bool useLightTint = true, float tileSize = 32.f) {
@@ -341,7 +341,9 @@ public:
             const MapEntity& e = entities[i];
             if (e.textureId < 0)     continue;
             if (e.type == ENT_ENEMY) continue;
+            if (e.type == ENT_NONE)  continue;
 
+            // Только ENT_BACKTRAP рисуем за тайлами — точно как в мап-криейторе
             bool isBack = (e.type == ENT_BACKTRAP);
             if (backOnly != isBack) continue;
 
